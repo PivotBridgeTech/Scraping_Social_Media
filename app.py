@@ -166,17 +166,151 @@ def scrape():
     )
 
 
+@app.route("/enrich", methods=["POST"])
+def enrich():
+    """
+    Stream enrichment results for a list of Instagram URLs.
+    Accepts JSON body: { "urls": [...] }
+    Streams SSE events: status | enriched | enrich_done | error
+    """
+    import random as _random
+    from enricher import enrich_profile, get_ig_client, get_maps_client
+
+    body      = request.get_json(silent=True) or {}
+    urls      = [u for u in body.get("urls", []) if u.strip()]
+    ig_user   = os.getenv("IG_USERNAME", "").strip()
+    ig_pass   = os.getenv("IG_PASSWORD", "").strip()
+    maps_key  = (
+        os.getenv("GOOGLE_MAPS_KEY", "").strip()
+        or os.getenv("GOOGLE_API_KEY", "").strip()
+    )
+
+    def event(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    def generate():
+        if not urls:
+            yield event({"type": "error", "message": "No URLs provided."})
+            return
+
+        # ── Initialise Instagram client ───────────────────────────────────────
+        ig_client = None
+        if ig_user and ig_pass:
+            yield event({"type": "status", "message": "🔐 Logging in to Instagram…"})
+            ig_client = get_ig_client(ig_user, ig_pass)
+            if ig_client:
+                yield event({"type": "status", "message": "✅ Instagram connected — fetching contact data"})
+            else:
+                yield event({"type": "status", "message": "⚠️ Instagram login failed — using bio scrape only"})
+        else:
+            yield event({"type": "status", "message": "ℹ️ No IG credentials — using bio scrape only"})
+
+        # ── Initialise Maps client ────────────────────────────────────────────
+        maps_client = get_maps_client(maps_key) if maps_key else None
+        if not maps_client:
+            yield event({"type": "status", "message": "⚠️ No Maps API key — location text only, no GPS"})
+
+        yield event({
+            "type": "status",
+            "message": f"🔬 Enriching {len(urls)} profiles…",
+        })
+
+        # ── Enrich each profile ───────────────────────────────────────────────
+        enriched_count = 0
+        email_count    = 0
+        phone_count    = 0
+        loc_count      = 0
+
+        for i, url in enumerate(urls):
+            try:
+                profile = enrich_profile(url, ig_client=ig_client, maps_client=maps_client)
+            except Exception as exc:
+                profile = {
+                    "url": url,
+                    "username": url.split("instagram.com/")[-1].strip("/"),
+                    "error": str(exc),
+                }
+
+            enriched_count += 1
+            if profile.get("email"):    email_count += 1
+            if profile.get("phone"):    phone_count += 1
+            if profile.get("location_text"): loc_count += 1
+
+            yield event({
+                "type":     "enriched",
+                "profile":  profile,
+                "progress": i + 1,
+                "total":    len(urls),
+            })
+
+            # Polite delay between requests (less when no IG client)
+            time.sleep(_random.uniform(1.5, 3.0) if ig_client else _random.uniform(0.3, 0.7))
+
+        yield event({
+            "type":    "enrich_done",
+            "total":   enriched_count,
+            "emails":  email_count,
+            "phones":  phone_count,
+            "locations": loc_count,
+            "message": (
+                f"Enriched {enriched_count} profiles · "
+                f"{email_count} emails · {phone_count} phones · {loc_count} locations"
+            ),
+        })
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/download", methods=["POST"])
 def download():
-    data  = request.get_json(silent=True) or {}
-    urls  = data.get("urls", [])
-    niche = data.get("niche", "instagram_profiles")
+    data     = request.get_json(silent=True) or {}
+    urls     = data.get("urls", [])
+    niche    = data.get("niche", "instagram_profiles")
+    enriched = data.get("enriched", {})   # url → enrichment dict
+    scores   = data.get("scores",   {})   # url → {score, reason}
+
+    has_enrich = bool(enriched)
+    has_scores = bool(scores)
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["instagram_url"])
+
+    # Build header row dynamically
+    headers = ["instagram_url", "username"]
+    if has_enrich:
+        headers += [
+            "full_name", "email", "phone",
+            "location", "formatted_address", "lat", "lng",
+            "category", "is_business",
+        ]
+    if has_scores:
+        headers += ["score", "score_reason"]
+    writer.writerow(headers)
+
     for url in urls:
-        writer.writerow([url])
+        username = url.replace("https://www.instagram.com/", "").strip("/")
+        row = [url, username]
+        if has_enrich:
+            e = enriched.get(url, {})
+            row += [
+                e.get("full_name",         ""),
+                e.get("email",             ""),
+                e.get("phone",             ""),
+                e.get("location_text",     ""),
+                e.get("formatted_address", ""),
+                e.get("lat",               ""),
+                e.get("lng",               ""),
+                e.get("category",          ""),
+                "yes" if e.get("is_business") else "",
+            ]
+        if has_scores:
+            s = scores.get(url, {})
+            row += [s.get("score", ""), s.get("reason", "")]
+        writer.writerow(row)
 
     filename = f"{niche.replace(' ', '_')}_profiles.csv"
     return Response(

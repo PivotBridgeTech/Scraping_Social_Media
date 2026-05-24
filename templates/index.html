@@ -50,11 +50,26 @@
       color: #c4b5fd; margin: 0.15rem; font-family: monospace;
     }
 
+    /* Enrichment contact row */
+    .enrich-row { display: none; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-top: 0.2rem; }
+    .enrich-row.visible { display: flex; }
+    .enrich-tag {
+      font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 9999px;
+      border: 1px solid; white-space: nowrap; font-family: monospace;
+    }
+    .enrich-email { background:#0c2a1a; border-color:#166534; color:#4ade80; }
+    .enrich-phone { background:#0c1e2e; border-color:#1e40af; color:#60a5fa; }
+    .enrich-loc   { background:#1a1208; border-color:#78350f; color:#fbbf24; }
+    .enrich-gps   { background:#111827; border-color:#374151; color:#9ca3af; }
+    .enrich-cat   { background:#1e0a3c; border-color:#5b21b6; color:#c4b5fd; }
+
+    /* Enrichment progress bar */
+    #enrichBar { background: #101820; border: 1px solid #1e3a5f; border-radius: 0.75rem; padding: 0.85rem 1rem; }
+
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: #111; }
     ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
-
-</style>
+  </style>
 </head>
 <body class="min-h-screen text-white p-6">
 <div class="max-w-3xl mx-auto space-y-5">
@@ -67,7 +82,6 @@
     </h1>
     <p class="text-gray-500 mt-1.5 text-sm">Find influencers by niche &amp; location · no login required</p>
 
-    <!-- AI badge (shown when Anthropic key is configured) -->
     {% if anthropic_active %}
     <div class="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold"
          style="background:#1a0a2e; border:1px solid #6d28d9; color:#c4b5fd;">
@@ -112,7 +126,7 @@
     </button>
   </div>
 
-  <!-- AI Queries panel (shown after Claude generates queries) -->
+  <!-- AI Queries panel -->
   <div id="aiQueriesSection" class="hidden">
     <div id="aiQueriesPanel">
       <div class="flex items-center gap-2 mb-2">
@@ -123,7 +137,7 @@
     </div>
   </div>
 
-  <!-- Status bar -->
+  <!-- Search status bar -->
   <div id="statusBar" class="card rounded-2xl p-5 hidden">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
@@ -143,17 +157,47 @@
     <p id="queryDisplay" class="text-xs text-gray-700 mt-3 font-mono truncate"></p>
   </div>
 
+  <!-- Enrichment progress bar (hidden until enrich starts) -->
+  <div id="enrichSection" class="hidden">
+    <div id="enrichBar">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span id="enrichIcon" class="spin text-sky-400 text-lg">⟳</span>
+          <span id="enrichMsg" class="text-sm text-sky-300">Enriching profiles…</span>
+        </div>
+        <span id="enrichCountBadge" class="text-xs bg-sky-900/40 text-sky-300 px-3 py-1 rounded-full font-mono">
+          0 / 0
+        </span>
+      </div>
+      <div class="w-full bg-gray-800 rounded-full h-1.5">
+        <div id="enrichProgressBar"
+          class="bg-gradient-to-r from-sky-500 to-cyan-400 h-1.5 rounded-full transition-all duration-300"
+          style="width:0%"></div>
+      </div>
+      <div id="enrichStats" class="flex gap-4 mt-2 text-xs text-gray-600">
+        <span>📧 <span id="eCount">0</span> emails</span>
+        <span>📞 <span id="pCount">0</span> phones</span>
+        <span>📍 <span id="lCount">0</span> locations</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Error / warning banners -->
   <div id="errorBanner" class="hidden bg-red-900/40 border border-red-700 text-red-300 rounded-xl px-4 py-3 text-sm"></div>
 
   <!-- Results -->
   <div id="resultsSection" class="card rounded-2xl hidden">
-    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800 flex-wrap gap-2">
       <h2 class="font-semibold text-gray-200">Profiles found</h2>
-      <div class="flex gap-2 items-center">
+      <div class="flex gap-2 items-center flex-wrap">
         <button id="sortBtn" onclick="sortByScore()" class="hidden text-xs bg-purple-900/40 hover:bg-purple-800/60
                text-purple-300 px-3 py-1.5 rounded-lg transition-colors border border-purple-800/50">
           ↕ Sort by score
+        </button>
+        <button id="enrichBtn" onclick="startEnrich()" class="hidden text-xs
+               bg-sky-900/50 hover:bg-sky-800/70 text-sky-300 px-3 py-1.5 rounded-lg
+               transition-colors border border-sky-800/50">
+          🔬 Enrich profiles
         </button>
         <button onclick="copyAll()"
           class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">
@@ -166,7 +210,7 @@
         </button>
       </div>
     </div>
-    <div id="urlList" class="divide-y divide-gray-800/60 max-h-[480px] overflow-y-auto"></div>
+    <div id="urlList" class="divide-y divide-gray-800/60 max-h-[520px] overflow-y-auto"></div>
   </div>
 
   <!-- Done banner -->
@@ -176,53 +220,75 @@
   </div>
 
   <p class="text-center text-xs text-gray-700 pb-6">
-    Profile URLs only · no Instagram login required
+    Profile URLs only · no Instagram login required for search
   </p>
 </div>
 
 <script>
   // ── State ──────────────────────────────────────────────────────────────────
   let collectedUrls = [];
-  let scoreMap = {};        // url → {score, reason}
+  let scoreMap      = {};   // url → {score, reason}
+  let enrichMap     = {};   // url → enrichment dict
   let currentNiche  = '';
   let maxExpected   = 50;
   let currentEngine = 'ddgs';
   let evtSrc        = null;
   let sortedByScore = false;
+  let enrichRunning = false;
+  let enrichEmailCount = 0, enrichPhoneCount = 0, enrichLocCount = 0;
 
-  // ── Scoring helpers ────────────────────────────────────────────────────────
-  function scoreBadgeHTML(url) {
-    const s = scoreMap[url];
-    if (!s || s.score === null) return '';
-    const cls = s.score >= 80 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
-    const tip = s.reason ? ` title="${s.reason.replace(/"/g,"'")}"` : '';
-    return `<span class="score-badge ${cls}"${tip}>${s.score}</span>`;
-  }
-
+  // ── Score helpers ──────────────────────────────────────────────────────────
   function applyScores() {
     document.querySelectorAll('[data-url]').forEach(item => {
       const url = item.getAttribute('data-url');
-      const placeholder = item.querySelector('.score-placeholder');
-      if (!placeholder) return;
+      const ph  = item.querySelector('.score-placeholder');
+      if (!ph) return;
       const s = scoreMap[url];
       if (!s || s.score === null) return;
       const cls = s.score >= 80 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
       const tip = s.reason ? ` title="${s.reason.replace(/"/g,"'")}"` : '';
-      placeholder.outerHTML = `<span class="score-badge ${cls}"${tip}>${s.score}</span>`;
+      ph.outerHTML = `<span class="score-badge ${cls}"${tip}>${s.score}</span>`;
     });
   }
 
   function sortByScore() {
-    const list = document.getElementById('urlList');
+    const list  = document.getElementById('urlList');
     const items = Array.from(list.querySelectorAll('[data-url]'));
     items.sort((a, b) => {
       const sa = scoreMap[a.getAttribute('data-url')]?.score ?? -1;
       const sb = scoreMap[b.getAttribute('data-url')]?.score ?? -1;
       return sb - sa;
     });
-    items.forEach(item => list.appendChild(item));
+    items.forEach(i => list.appendChild(i));
     sortedByScore = true;
     document.getElementById('sortBtn').textContent = '✓ Sorted by score';
+  }
+
+  // ── Enrichment helpers ─────────────────────────────────────────────────────
+  function applyEnrichment(url, p) {
+    enrichMap[url] = p;
+    const item = document.querySelector(`[data-url="${CSS.escape(url)}"]`);
+    if (!item) return;
+
+    const row = item.querySelector('.enrich-row');
+    if (!row) return;
+
+    const tags = [];
+    if (p.email)
+      tags.push(`<span class="enrich-tag enrich-email" title="${p.email}">📧 ${p.email}</span>`);
+    if (p.phone)
+      tags.push(`<span class="enrich-tag enrich-phone">${p.phone}</span>`);
+    if (p.formatted_address || p.location_text)
+      tags.push(`<span class="enrich-tag enrich-loc">📍 ${p.formatted_address || p.location_text}</span>`);
+    if (p.lat != null && p.lng != null)
+      tags.push(`<span class="enrich-tag enrich-gps">🗺 ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</span>`);
+    if (p.category)
+      tags.push(`<span class="enrich-tag enrich-cat">${p.category}</span>`);
+
+    if (tags.length) {
+      row.innerHTML = tags.join('');
+      row.classList.add('visible');
+    }
   }
 
   // ── AI queries display ─────────────────────────────────────────────────────
@@ -242,35 +308,32 @@
     const niche      = document.getElementById('niche').value.trim();
     const location   = document.getElementById('location').value.trim();
     const maxResults = document.getElementById('max_results').value;
-
     if (!niche) { document.getElementById('niche').focus(); return; }
 
-    // Reset state
-    collectedUrls = [];
-    scoreMap      = {};
+    collectedUrls = []; scoreMap = {}; enrichMap = {};
+    enrichEmailCount = enrichPhoneCount = enrichLocCount = 0;
     sortedByScore = false;
     currentNiche  = niche;
     maxExpected   = parseInt(maxResults);
 
-    document.getElementById('urlList').innerHTML = '';
+    document.getElementById('urlList').innerHTML   = '';
     document.getElementById('errorBanner').classList.add('hidden');
     document.getElementById('doneBanner').classList.add('hidden');
     document.getElementById('resultsSection').classList.add('hidden');
     document.getElementById('aiQueriesSection').classList.add('hidden');
+    document.getElementById('enrichSection').classList.add('hidden');
     document.getElementById('statusBar').classList.remove('hidden');
-    document.getElementById('progressBar').style.width = '0%';
-    document.getElementById('countBadge').textContent  = '0 profiles';
-    document.getElementById('downloadBtn').disabled    = true;
+    document.getElementById('progressBar').style.width   = '0%';
+    document.getElementById('countBadge').textContent    = '0 profiles';
+    document.getElementById('downloadBtn').disabled      = true;
     document.getElementById('sortBtn').classList.add('hidden');
-    document.getElementById('startBtn').disabled       = true;
-    document.getElementById('startBtn').textContent    = '⏳ Searching…';
-    document.getElementById('statusIcon').className    = 'spin text-purple-400 text-lg';
-    document.getElementById('statusIcon').textContent  = '⟳';
+    document.getElementById('enrichBtn').classList.add('hidden');
+    document.getElementById('startBtn').disabled         = true;
+    document.getElementById('startBtn').textContent      = '⏳ Searching…';
+    document.getElementById('statusIcon').className      = 'spin text-purple-400 text-lg';
+    document.getElementById('statusIcon').textContent    = '⟳';
 
-    const params = new URLSearchParams({
-      niche, location, max_results: maxResults, engine: currentEngine,
-    });
-
+    const params = new URLSearchParams({ niche, location, max_results: maxResults, engine: currentEngine });
     if (evtSrc) evtSrc.close();
     evtSrc = new EventSource(`/scrape?${params}`);
 
@@ -279,88 +342,168 @@
 
       if (msg.type === 'status') {
         setStatus(msg.message);
-        // If scoring started, show visual indicator
-        if (msg.message && msg.message.includes('Scoring')) {
+        if (msg.message?.includes('Scoring')) {
           document.getElementById('statusIcon').textContent = '✦';
           document.getElementById('statusIcon').className   = 'spin text-purple-400 text-lg';
         }
       }
-
       if (msg.type === 'scoring_start') {
         setStatus(msg.message);
         document.getElementById('statusIcon').textContent = '✦';
       }
-
-      if (msg.type === 'ai_queries') {
-        showAiQueries(msg.queries);
-      }
-
-      if (msg.type === 'query') {
-        document.getElementById('queryDisplay').textContent = `Query: ${msg.query}`;
-      }
+      if (msg.type === 'ai_queries')  showAiQueries(msg.queries);
+      if (msg.type === 'query')       document.getElementById('queryDisplay').textContent = `Query: ${msg.query}`;
 
       if (msg.type === 'urls') {
         msg.new_urls.forEach(appendUrl);
         updateCount(msg.total_count);
-        const pct = Math.min((msg.total_count / maxExpected) * 100, 88);
-        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('progressBar').style.width =
+          Math.min((msg.total_count / maxExpected) * 100, 88) + '%';
         document.getElementById('resultsSection').classList.remove('hidden');
         document.getElementById('downloadBtn').disabled = false;
         setStatus(`Found ${msg.total_count} profile${msg.total_count !== 1 ? 's' : ''}…`);
       }
 
       if (msg.type === 'scores') {
-        // Store scores and update all existing items
-        for (const p of msg.profiles) {
-          scoreMap[p.url] = {score: p.score, reason: p.reason};
-        }
+        for (const p of msg.profiles) scoreMap[p.url] = {score: p.score, reason: p.reason};
         applyScores();
-        // Show sort button
         document.getElementById('sortBtn').classList.remove('hidden');
         document.getElementById('sortBtn').textContent = '↕ Sort by score';
         sortedByScore = false;
       }
 
       if (msg.type === 'error') {
-        const b = document.getElementById('errorBanner');
-        b.textContent = `❌ ${msg.message}`;
-        b.classList.remove('hidden');
+        showError(msg.message);
         finish();
       }
 
       if (msg.type === 'done') {
-        document.getElementById('progressBar').style.width = '100%';
-        document.getElementById('statusIcon').className   = 'text-green-400 text-lg';
-        document.getElementById('statusIcon').textContent = '✓';
+        document.getElementById('progressBar').style.width   = '100%';
+        document.getElementById('statusIcon').className      = 'text-green-400 text-lg';
+        document.getElementById('statusIcon').textContent    = '✓';
         setStatus('Complete');
-        document.getElementById('doneMsg').textContent = msg.message;
+        document.getElementById('doneMsg').textContent       = msg.message;
         document.getElementById('doneBanner').classList.remove('hidden');
+        // Show enrich button if we have results
+        if (collectedUrls.length > 0) {
+          document.getElementById('enrichBtn').classList.remove('hidden');
+        }
         finish();
       }
     };
 
     evtSrc.onerror = () => {
-      const b = document.getElementById('errorBanner');
-      if (!b.textContent) {
-        b.textContent = '❌ Connection dropped. Any results above are still valid.';
-        b.classList.remove('hidden');
-      }
+      if (!document.getElementById('errorBanner').textContent)
+        showError('Connection dropped. Any results above are still valid.');
       finish();
     };
   }
 
+  // ── Enrichment ─────────────────────────────────────────────────────────────
+  async function startEnrich() {
+    if (enrichRunning || !collectedUrls.length) return;
+    enrichRunning = true;
+
+    const btn = document.getElementById('enrichBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Enriching…';
+
+    document.getElementById('enrichSection').classList.remove('hidden');
+    document.getElementById('enrichProgressBar').style.width = '0%';
+    document.getElementById('enrichIcon').className  = 'spin text-sky-400 text-lg';
+    document.getElementById('enrichIcon').textContent = '⟳';
+    enrichEmailCount = enrichPhoneCount = enrichLocCount = 0;
+    updateEnrichStats();
+
+    let resp;
+    try {
+      resp = await fetch('/enrich', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({urls: collectedUrls}),
+      });
+    } catch(err) {
+      showError('Enrichment request failed: ' + err.message);
+      enrichRunning = false;
+      btn.disabled = false; btn.textContent = '🔬 Enrich profiles';
+      return;
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        try { handleEnrichEvent(JSON.parse(part.slice(6))); } catch(_) {}
+      }
+    }
+    // flush remaining
+    if (buffer.startsWith('data: ')) {
+      try { handleEnrichEvent(JSON.parse(buffer.slice(6))); } catch(_) {}
+    }
+
+    enrichRunning = false;
+    btn.disabled = false;
+    btn.textContent = '✅ Enriched';
+  }
+
+  function handleEnrichEvent(msg) {
+    if (msg.type === 'status') {
+      document.getElementById('enrichMsg').textContent = msg.message;
+    }
+    if (msg.type === 'enriched') {
+      const p       = msg.profile;
+      const total   = msg.total;
+      const done    = msg.progress;
+      if (p.email)         enrichEmailCount++;
+      if (p.phone)         enrichPhoneCount++;
+      if (p.location_text) enrichLocCount++;
+      updateEnrichStats();
+      document.getElementById('enrichProgressBar').style.width = ((done / total) * 100) + '%';
+      document.getElementById('enrichCountBadge').textContent  = `${done} / ${total}`;
+      document.getElementById('enrichMsg').textContent = `Enriching ${done} of ${total}…`;
+      applyEnrichment(p.url, p);
+    }
+    if (msg.type === 'enrich_done') {
+      document.getElementById('enrichIcon').className  = 'text-sky-400 text-lg';
+      document.getElementById('enrichIcon').textContent = '✓';
+      document.getElementById('enrichMsg').textContent  = msg.message;
+      document.getElementById('enrichProgressBar').style.width = '100%';
+    }
+    if (msg.type === 'error') {
+      showError(msg.message);
+    }
+  }
+
+  function updateEnrichStats() {
+    document.getElementById('eCount').textContent = enrichEmailCount;
+    document.getElementById('pCount').textContent = enrichPhoneCount;
+    document.getElementById('lCount').textContent = enrichLocCount;
+  }
+
+  // ── Profile list ───────────────────────────────────────────────────────────
   function appendUrl(url) {
     if (collectedUrls.includes(url)) return;
     collectedUrls.push(url);
     const username = url.replace('https://www.instagram.com/', '').replace(/\/$/, '');
-    const idx = collectedUrls.length;
+    const idx  = collectedUrls.length;
     const item = document.createElement('div');
-    item.className = 'url-item px-5 py-2.5 flex items-center gap-3 hover:bg-white/[0.02]';
+    item.className = 'url-item px-5 py-2.5 flex items-start gap-3 hover:bg-white/[0.02]';
     item.setAttribute('data-url', url);
     item.innerHTML = `
-      <span class="text-purple-600 text-xs font-mono w-6 text-right flex-shrink-0">${idx}</span>
-      <a href="${url}" target="_blank" rel="noopener"
-         class="text-sm text-blue-400 hover:text-blue-300 truncate transition-colors flex-1 min-w-0">@${username}</a>
+      <span class="text-purple-600 text-xs font-mono w-6 text-right flex-shrink-0 pt-0.5">${idx}</span>
+      <div class="flex-1 min-w-0">
+        <a href="${url}" target="_blank" rel="noopener"
+           class="text-sm text-blue-400 hover:text-blue-300 truncate transition-colors block">@${username}</a>
+        <div class="enrich-row"></div>
+      </div>
       <span class="score-placeholder text-xs text-gray-700 w-8 text-center flex-shrink-0">·</span>
       <button
         onclick="navigator.clipboard.writeText('${url}'); this.textContent='✓'; setTimeout(()=>this.textContent='copy',1200)"
@@ -377,6 +520,12 @@
 
   function setStatus(msg) {
     document.getElementById('statusMsg').textContent = msg;
+  }
+
+  function showError(msg) {
+    const b = document.getElementById('errorBanner');
+    b.textContent = `❌ ${msg}`;
+    b.classList.remove('hidden');
   }
 
   function finish() {
@@ -398,8 +547,13 @@
     if (!collectedUrls.length) return;
     fetch('/download', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls: collectedUrls, niche: currentNiche }),
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        urls:     collectedUrls,
+        niche:    currentNiche,
+        enriched: enrichMap,
+        scores:   scoreMap,
+      }),
     }).then(r => r.blob()).then(blob => {
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
