@@ -6,7 +6,13 @@ import os
 
 from dotenv import load_dotenv
 from flask import Flask, Response, render_template, request, jsonify
-from scraper import search_instagram_profiles
+from scraper import (
+    build_query,
+    generate_search_queries,
+    score_profiles,
+    search_with_query,
+    search_instagram_profiles,
+)
 
 load_dotenv()
 
@@ -23,7 +29,8 @@ ENGINE_LABELS = {
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    anthropic_active = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
+    return render_template("index.html", anthropic_active=anthropic_active)
 
 
 @app.route("/scrape")
@@ -35,12 +42,14 @@ def scrape():
     api_key     = request.args.get("api_key", "").strip()
     cse_id      = request.args.get("cse_id", "").strip()
 
-    # Fall back to env vars if not provided in the request
+    # Fall back to env vars
     if engine == "google_api":
         api_key = api_key or os.getenv("GOOGLE_API_KEY", "")
         cse_id  = cse_id  or os.getenv("GOOGLE_CSE_ID", "")
     elif engine == "brave_api":
         api_key = api_key or os.getenv("BRAVE_API_KEY", "")
+
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
 
     if not niche:
         return jsonify({"error": "Niche is required"}), 400
@@ -51,48 +60,104 @@ def scrape():
         return f"data: {json.dumps(data)}\n\n"
 
     def generate():
-        yield event({"type": "status",
-                     "message": f'Searching via {label} for "{niche}"…'})
+        # ── Step 1: Generate AI queries (or fall back to single query) ────────
+        if anthropic_key:
+            yield event({"type": "status", "message": "🤖 Generating smart search queries with AI…"})
+            queries = generate_search_queries(
+                niche, location, count=6, anthropic_api_key=anthropic_key
+            )
+            yield event({"type": "ai_queries", "queries": queries})
+            yield event({
+                "type": "status",
+                "message": f"Searching via {label} with {len(queries)} AI queries…",
+            })
+        else:
+            queries = [build_query(niche, location)]
+            yield event({"type": "status", "message": f'Searching via {label} for "{niche}"…'})
 
-        result = search_instagram_profiles(
-            niche=niche,
-            location=location,
-            max_results=max_results,
-            engine=engine,
-            api_key=api_key,
-            cse_id=cse_id,
-        )
+        yield event({"type": "query", "query": queries[0], "engine": engine})
 
-        yield event({"type": "query", "query": result["query"],
-                     "engine": result.get("engine", engine)})
+        # ── Step 2: Run all queries, stream URLs as they arrive ───────────────
+        seen_urls: dict = {}   # url → profile dict
+        first_error = None
 
-        if result["error"]:
-            yield event({"type": "error", "message": result["error"]})
-            # Still emit any partial results
-            if result["urls"]:
-                for i in range(0, len(result["urls"]), BATCH_SIZE):
-                    yield event({"type": "urls",
-                                 "new_urls": result["urls"][i:i+BATCH_SIZE],
-                                 "total_count": min(i + BATCH_SIZE, len(result["urls"]))})
+        for q_idx, query in enumerate(queries):
+            result = search_with_query(query, engine, api_key, cse_id, max_results=max_results)
+
+            if result["error"] and not seen_urls:
+                first_error = result["error"]
+
+            new_batch = []
+            for profile in result.get("profiles", []):
+                url = profile["url"]
+                if url not in seen_urls:
+                    seen_urls[url] = profile
+                    new_batch.append(url)
+
+                    # Emit in small batches for smooth UI
+                    if len(new_batch) >= BATCH_SIZE:
+                        yield event({
+                            "type": "urls",
+                            "new_urls": new_batch,
+                            "total_count": len(seen_urls),
+                        })
+                        new_batch = []
+                        time.sleep(0.02)
+
+            if new_batch:
+                yield event({
+                    "type": "urls",
+                    "new_urls": new_batch,
+                    "total_count": len(seen_urls),
+                })
+
+            if len(seen_urls) >= max_results:
+                break
+
+            # Small delay between queries to be polite
+            if q_idx < len(queries) - 1:
+                time.sleep(0.1)
+
+        if first_error and not seen_urls:
+            yield event({"type": "error", "message": first_error})
             return
 
-        urls = result["urls"]
+        profiles = list(seen_urls.values())[:max_results]
 
-        if not urls:
-            yield event({"type": "done",
-                         "message": "No Instagram profiles found. Try a different niche or location.",
-                         "total_count": 0, "urls": []})
+        if not profiles:
+            yield event({
+                "type": "done",
+                "message": "No Instagram profiles found. Try a different niche or location.",
+                "total_count": 0,
+                "urls": [],
+            })
             return
 
-        for i in range(0, len(urls), BATCH_SIZE):
-            batch = urls[i:i + BATCH_SIZE]
-            yield event({"type": "urls", "new_urls": batch,
-                         "total_count": min(i + BATCH_SIZE, len(urls))})
-            time.sleep(0.04)
+        # ── Step 3: Score profiles with Claude ───────────────────────────────
+        if anthropic_key:
+            yield event({
+                "type": "scoring_start",
+                "message": f"🤖 Scoring {len(profiles)} profiles for relevance…",
+            })
+            scored = score_profiles(profiles, niche, location, anthropic_api_key=anthropic_key)
+            yield event({
+                "type": "scores",
+                "profiles": [
+                    {"url": p["url"], "score": p["score"], "reason": p["reason"]}
+                    for p in scored
+                ],
+            })
+            final_urls = [p["url"] for p in scored]
+        else:
+            final_urls = [p["url"] for p in profiles]
 
-        yield event({"type": "done",
-                     "message": f"Found {len(urls)} Instagram profiles via {label}.",
-                     "total_count": len(urls), "urls": urls})
+        ai_note = " · AI-enhanced" if anthropic_key else ""
+        yield event({
+            "type": "done",
+            "message": f"Found {len(final_urls)} Instagram profiles via {label}{ai_note}.",
+            "total_count": len(final_urls),
+            "urls": final_urls,
+        })
 
     return Response(
         generate(),
@@ -122,5 +187,8 @@ def download():
 
 
 if __name__ == "__main__":
-    print("\n🚀  Instagram Scraper running at http://localhost:8080\n")
+    ak = os.getenv("ANTHROPIC_API_KEY", "")
+    ai_status = "✅ AI features active" if ak else "⚠️  No Anthropic API key — AI features disabled"
+    print(f"\n🚀  Instagram Scraper running at http://localhost:8080")
+    print(f"    {ai_status}\n")
     app.run(debug=False, port=8080)

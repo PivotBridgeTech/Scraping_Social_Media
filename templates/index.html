@@ -14,18 +14,6 @@
     }
     .input-field:focus { outline: none; border-color: #a855f7; }
 
-    /* Engine toggle buttons */
-    .engine-btn {
-      flex: 1; padding: 0.55rem 0.5rem; border-radius: 0.6rem;
-      font-size: 0.78rem; font-weight: 600; transition: all 0.15s;
-      border: 1px solid #2a2a2a; background: #111; color: #888;
-      cursor: pointer; text-align: center;
-    }
-    .engine-btn:hover { border-color: #555; color: #ccc; }
-    .engine-btn.active-ddgs       { background: #1e1333; border-color: #a855f7; color: #d8b4fe; }
-    .engine-btn.active-google_api { background: #0f2218; border-color: #22c55e; color: #86efac; }
-    .engine-btn.active-brave_api  { background: #1a1506; border-color: #f59e0b; color: #fcd34d; }
-
     .btn-run {
       background: linear-gradient(135deg, #a855f7, #6366f1);
       transition: opacity 0.2s, transform 0.1s;
@@ -41,12 +29,32 @@
     .spin { animation: spin 1s linear infinite; display: inline-block; }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* Score badge colours */
+    .score-high   { background: #14532d; color: #86efac; border-color: #166534; }
+    .score-mid    { background: #713f12; color: #fde68a; border-color: #92400e; }
+    .score-low    { background: #1c1c1c; color: #6b7280; border-color: #374151; }
+    .score-badge  {
+      font-size: 0.65rem; font-weight: 700; border-radius: 9999px;
+      padding: 0.15rem 0.5rem; border: 1px solid; flex-shrink: 0;
+      cursor: default; white-space: nowrap;
+    }
+
+    /* AI queries panel */
+    #aiQueriesPanel {
+      background: #110d1f; border: 1px solid #3b1f6b; border-radius: 0.75rem;
+      padding: 0.85rem 1rem;
+    }
+    .query-chip {
+      display: inline-block; font-size: 0.7rem; background: #1e1333;
+      border: 1px solid #4c1d95; border-radius: 0.4rem; padding: 0.2rem 0.5rem;
+      color: #c4b5fd; margin: 0.15rem; font-family: monospace;
+    }
+
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: #111; }
     ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
 
-    #apiPanel { display: none; }
-  </style>
+</style>
 </head>
 <body class="min-h-screen text-white p-6">
 <div class="max-w-3xl mx-auto space-y-5">
@@ -57,78 +65,19 @@
     <h1 class="text-3xl font-bold bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
       Instagram Profile Scraper
     </h1>
-    <p class="text-gray-500 mt-1.5 text-sm">Find profiles by niche &amp; location · no login required</p>
+    <p class="text-gray-500 mt-1.5 text-sm">Find influencers by niche &amp; location · no login required</p>
+
+    <!-- AI badge (shown when Anthropic key is configured) -->
+    {% if anthropic_active %}
+    <div class="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold"
+         style="background:#1a0a2e; border:1px solid #6d28d9; color:#c4b5fd;">
+      ✦ Claude AI Enhanced · multi-query + relevance scoring
+    </div>
+    {% endif %}
   </div>
 
   <!-- Main form -->
   <div class="card rounded-2xl p-6 space-y-5">
-
-    <!-- Engine selector -->
-    <div>
-      <label class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Search engine</label>
-      <div class="flex gap-2">
-        <button class="engine-btn active-ddgs" id="btn-ddgs" onclick="setEngine('ddgs')">
-          🦆 DuckDuckGo
-          <div class="text-[10px] font-normal text-gray-500 mt-0.5">Free · instant</div>
-        </button>
-        <button class="engine-btn" id="btn-google_api" onclick="setEngine('google_api')">
-          🔍 Google API
-          <div class="text-[10px] font-normal text-gray-500 mt-0.5">100 free/day · needs key</div>
-        </button>
-        <button class="engine-btn" id="btn-brave_api" onclick="setEngine('brave_api')">
-          🦁 Brave Search
-          <div class="text-[10px] font-normal text-gray-500 mt-0.5">2k free/mo · needs key</div>
-        </button>
-      </div>
-    </div>
-
-    <!-- Google API key panel (shown only for google_api) -->
-    <div id="apiPanel" class="bg-[#0f2218] border border-green-900/50 rounded-xl p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <p class="text-xs text-green-400 font-semibold">Google Custom Search API credentials</p>
-        <a href="https://developers.google.com/custom-search/v1/overview"
-           target="_blank" rel="noopener"
-           class="text-xs text-green-600 hover:text-green-400 underline">Setup guide ↗</a>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">API Key</label>
-          <input id="api_key" type="password" placeholder="AIza…"
-            class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
-            oninput="saveKeys()" />
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">
-            Custom Search Engine ID
-            <a href="https://programmablesearchengine.google.com/controlpanel/create"
-               target="_blank" rel="noopener"
-               class="text-green-600 hover:text-green-400 ml-1">create ↗</a>
-          </label>
-          <input id="cse_id" type="text" placeholder="123456789:abc…"
-            class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
-            oninput="saveKeys()" />
-        </div>
-      </div>
-      <p class="text-xs text-gray-600">
-        Keys are saved in your browser only — never sent anywhere except Google's API.
-      </p>
-    </div>
-
-    <!-- Brave API panel -->
-    <div id="bravePanel" class="hidden bg-[#1a1506] border border-yellow-900/50 rounded-xl p-4 space-y-3">
-      <div class="flex items-center justify-between">
-        <p class="text-xs text-yellow-400 font-semibold">Brave Search API key</p>
-        <a href="https://api.search.brave.com/register" target="_blank" rel="noopener"
-           class="text-xs text-yellow-600 hover:text-yellow-400 underline">Get free key ↗</a>
-      </div>
-      <input id="brave_key" type="password" placeholder="BSA…"
-        class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
-        oninput="localStorage.setItem('ig_brave_key', this.value)" />
-      <p class="text-xs text-gray-600">
-        Free tier: 2,000 queries/month. Sign up at api.search.brave.com → create a key under
-        "Data for Search" → Free AI plan.
-      </p>
-    </div>
 
     <!-- Niche + Location -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -163,6 +112,17 @@
     </button>
   </div>
 
+  <!-- AI Queries panel (shown after Claude generates queries) -->
+  <div id="aiQueriesSection" class="hidden">
+    <div id="aiQueriesPanel">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-purple-400 text-xs font-semibold uppercase tracking-wider">✦ AI-generated queries</span>
+        <span id="queriesCount" class="text-xs text-gray-600"></span>
+      </div>
+      <div id="queriesChips"></div>
+    </div>
+  </div>
+
   <!-- Status bar -->
   <div id="statusBar" class="card rounded-2xl p-5 hidden">
     <div class="flex items-center justify-between mb-3">
@@ -190,7 +150,11 @@
   <div id="resultsSection" class="card rounded-2xl hidden">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
       <h2 class="font-semibold text-gray-200">Profiles found</h2>
-      <div class="flex gap-2">
+      <div class="flex gap-2 items-center">
+        <button id="sortBtn" onclick="sortByScore()" class="hidden text-xs bg-purple-900/40 hover:bg-purple-800/60
+               text-purple-300 px-3 py-1.5 rounded-lg transition-colors border border-purple-800/50">
+          ↕ Sort by score
+        </button>
         <button onclick="copyAll()"
           class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">
           📋 Copy all
@@ -202,7 +166,7 @@
         </button>
       </div>
     </div>
-    <div id="urlList" class="divide-y divide-gray-800/60 max-h-[440px] overflow-y-auto"></div>
+    <div id="urlList" class="divide-y divide-gray-800/60 max-h-[480px] overflow-y-auto"></div>
   </div>
 
   <!-- Done banner -->
@@ -219,34 +183,58 @@
 <script>
   // ── State ──────────────────────────────────────────────────────────────────
   let collectedUrls = [];
+  let scoreMap = {};        // url → {score, reason}
   let currentNiche  = '';
   let maxExpected   = 50;
   let currentEngine = 'ddgs';
   let evtSrc        = null;
+  let sortedByScore = false;
 
-  // ── Engine selector ────────────────────────────────────────────────────────
-  function setEngine(eng) {
-    currentEngine = eng;
-    ['ddgs','google_api','brave_api'].forEach(e => {
-      const btn = document.getElementById(`btn-${e}`);
-      btn.className = `engine-btn${e === eng ? ` active-${e}` : ''}`;
-    });
-    document.getElementById('apiPanel').style.display    = (eng === 'google_api') ? 'block' : 'none';
-    document.getElementById('bravePanel').classList.toggle('hidden', eng !== 'brave_api');
-    // Restore saved keys
-    if (eng === 'google_api') {
-      document.getElementById('api_key').value  = localStorage.getItem('ig_api_key') || '';
-      document.getElementById('cse_id').value   = localStorage.getItem('ig_cse_id')  || '';
-    }
-    if (eng === 'brave_api') {
-      document.getElementById('brave_key').value = localStorage.getItem('ig_brave_key') || '';
-    }
-    localStorage.setItem('ig_engine', eng);
+  // ── Scoring helpers ────────────────────────────────────────────────────────
+  function scoreBadgeHTML(url) {
+    const s = scoreMap[url];
+    if (!s || s.score === null) return '';
+    const cls = s.score >= 80 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
+    const tip = s.reason ? ` title="${s.reason.replace(/"/g,"'")}"` : '';
+    return `<span class="score-badge ${cls}"${tip}>${s.score}</span>`;
   }
 
-  function saveKeys() {
-    localStorage.setItem('ig_api_key', document.getElementById('api_key').value);
-    localStorage.setItem('ig_cse_id',  document.getElementById('cse_id').value);
+  function applyScores() {
+    document.querySelectorAll('[data-url]').forEach(item => {
+      const url = item.getAttribute('data-url');
+      const placeholder = item.querySelector('.score-placeholder');
+      if (!placeholder) return;
+      const s = scoreMap[url];
+      if (!s || s.score === null) return;
+      const cls = s.score >= 80 ? 'score-high' : s.score >= 50 ? 'score-mid' : 'score-low';
+      const tip = s.reason ? ` title="${s.reason.replace(/"/g,"'")}"` : '';
+      placeholder.outerHTML = `<span class="score-badge ${cls}"${tip}>${s.score}</span>`;
+    });
+  }
+
+  function sortByScore() {
+    const list = document.getElementById('urlList');
+    const items = Array.from(list.querySelectorAll('[data-url]'));
+    items.sort((a, b) => {
+      const sa = scoreMap[a.getAttribute('data-url')]?.score ?? -1;
+      const sb = scoreMap[b.getAttribute('data-url')]?.score ?? -1;
+      return sb - sa;
+    });
+    items.forEach(item => list.appendChild(item));
+    sortedByScore = true;
+    document.getElementById('sortBtn').textContent = '✓ Sorted by score';
+  }
+
+  // ── AI queries display ─────────────────────────────────────────────────────
+  function showAiQueries(queries) {
+    const section = document.getElementById('aiQueriesSection');
+    const chips   = document.getElementById('queriesChips');
+    const count   = document.getElementById('queriesCount');
+    section.classList.remove('hidden');
+    count.textContent = `${queries.length} queries`;
+    chips.innerHTML = queries.map(q =>
+      `<span class="query-chip">${q.replace(/</g,'&lt;')}</span>`
+    ).join('');
   }
 
   // ── Scraping ───────────────────────────────────────────────────────────────
@@ -257,27 +245,10 @@
 
     if (!niche) { document.getElementById('niche').focus(); return; }
 
-    // Validation for API-key engines
-    if (currentEngine === 'google_api') {
-      const key = document.getElementById('api_key').value.trim();
-      const cx  = document.getElementById('cse_id').value.trim();
-      if (!key || !cx) {
-        document.getElementById('errorBanner').textContent = '❌ Enter your Google API Key and Custom Search Engine ID first.';
-        document.getElementById('errorBanner').classList.remove('hidden');
-        return;
-      }
-    }
-    if (currentEngine === 'brave_api') {
-      const key = document.getElementById('brave_key').value.trim();
-      if (!key) {
-        document.getElementById('errorBanner').textContent = '❌ Enter your Brave Search API key first. Get one free at api.search.brave.com';
-        document.getElementById('errorBanner').classList.remove('hidden');
-        return;
-      }
-    }
-
-    // Reset UI
+    // Reset state
     collectedUrls = [];
+    scoreMap      = {};
+    sortedByScore = false;
     currentNiche  = niche;
     maxExpected   = parseInt(maxResults);
 
@@ -285,27 +256,19 @@
     document.getElementById('errorBanner').classList.add('hidden');
     document.getElementById('doneBanner').classList.add('hidden');
     document.getElementById('resultsSection').classList.add('hidden');
+    document.getElementById('aiQueriesSection').classList.add('hidden');
     document.getElementById('statusBar').classList.remove('hidden');
     document.getElementById('progressBar').style.width = '0%';
     document.getElementById('countBadge').textContent  = '0 profiles';
     document.getElementById('downloadBtn').disabled    = true;
+    document.getElementById('sortBtn').classList.add('hidden');
     document.getElementById('startBtn').disabled       = true;
     document.getElementById('startBtn').textContent    = '⏳ Searching…';
     document.getElementById('statusIcon').className    = 'spin text-purple-400 text-lg';
     document.getElementById('statusIcon').textContent  = '⟳';
 
-    const extraParams = {};
-    if (currentEngine === 'google_api') {
-      extraParams.api_key = document.getElementById('api_key').value.trim();
-      extraParams.cse_id  = document.getElementById('cse_id').value.trim();
-    }
-    if (currentEngine === 'brave_api') {
-      extraParams.api_key = document.getElementById('brave_key').value.trim();
-    }
-
     const params = new URLSearchParams({
       niche, location, max_results: maxResults, engine: currentEngine,
-      ...extraParams,
     });
 
     if (evtSrc) evtSrc.close();
@@ -314,7 +277,23 @@
     evtSrc.onmessage = (e) => {
       const msg = JSON.parse(e.data);
 
-      if (msg.type === 'status') setStatus(msg.message);
+      if (msg.type === 'status') {
+        setStatus(msg.message);
+        // If scoring started, show visual indicator
+        if (msg.message && msg.message.includes('Scoring')) {
+          document.getElementById('statusIcon').textContent = '✦';
+          document.getElementById('statusIcon').className   = 'spin text-purple-400 text-lg';
+        }
+      }
+
+      if (msg.type === 'scoring_start') {
+        setStatus(msg.message);
+        document.getElementById('statusIcon').textContent = '✦';
+      }
+
+      if (msg.type === 'ai_queries') {
+        showAiQueries(msg.queries);
+      }
 
       if (msg.type === 'query') {
         document.getElementById('queryDisplay').textContent = `Query: ${msg.query}`;
@@ -323,11 +302,23 @@
       if (msg.type === 'urls') {
         msg.new_urls.forEach(appendUrl);
         updateCount(msg.total_count);
-        const pct = Math.min((msg.total_count / maxExpected) * 100, 95);
+        const pct = Math.min((msg.total_count / maxExpected) * 100, 88);
         document.getElementById('progressBar').style.width = pct + '%';
         document.getElementById('resultsSection').classList.remove('hidden');
         document.getElementById('downloadBtn').disabled = false;
         setStatus(`Found ${msg.total_count} profile${msg.total_count !== 1 ? 's' : ''}…`);
+      }
+
+      if (msg.type === 'scores') {
+        // Store scores and update all existing items
+        for (const p of msg.profiles) {
+          scoreMap[p.url] = {score: p.score, reason: p.reason};
+        }
+        applyScores();
+        // Show sort button
+        document.getElementById('sortBtn').classList.remove('hidden');
+        document.getElementById('sortBtn').textContent = '↕ Sort by score';
+        sortedByScore = false;
       }
 
       if (msg.type === 'error') {
@@ -364,13 +355,13 @@
     const username = url.replace('https://www.instagram.com/', '').replace(/\/$/, '');
     const idx = collectedUrls.length;
     const item = document.createElement('div');
-    item.className = 'url-item px-6 py-3 flex items-center justify-between gap-4 hover:bg-white/[0.02]';
+    item.className = 'url-item px-5 py-2.5 flex items-center gap-3 hover:bg-white/[0.02]';
+    item.setAttribute('data-url', url);
     item.innerHTML = `
-      <div class="flex items-center gap-3 min-w-0">
-        <span class="text-purple-600 text-xs font-mono w-6 text-right flex-shrink-0">${idx}</span>
-        <a href="${url}" target="_blank" rel="noopener"
-           class="text-sm text-blue-400 hover:text-blue-300 truncate transition-colors">@${username}</a>
-      </div>
+      <span class="text-purple-600 text-xs font-mono w-6 text-right flex-shrink-0">${idx}</span>
+      <a href="${url}" target="_blank" rel="noopener"
+         class="text-sm text-blue-400 hover:text-blue-300 truncate transition-colors flex-1 min-w-0">@${username}</a>
+      <span class="score-placeholder text-xs text-gray-700 w-8 text-center flex-shrink-0">·</span>
       <button
         onclick="navigator.clipboard.writeText('${url}'); this.textContent='✓'; setTimeout(()=>this.textContent='copy',1200)"
         class="text-xs text-gray-600 hover:text-gray-400 flex-shrink-0 w-8 transition-colors">copy</button>
@@ -424,9 +415,10 @@
     });
   });
 
-  // Restore last engine on load
-  const savedEngine = localStorage.getItem('ig_engine') || 'ddgs';
-  setEngine(savedEngine);
+  // Allow engine override via URL param: ?engine=brave_api or ?engine=google_api
+  const urlEngine = new URLSearchParams(window.location.search).get('engine');
+  if (urlEngine) currentEngine = urlEngine;
+
   document.getElementById('max_results').dispatchEvent(new Event('input'));
 </script>
 </body>

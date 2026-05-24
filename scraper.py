@@ -1,12 +1,17 @@
 """
-scraper.py — unified Instagram profile URL finder.
+scraper.py — unified Instagram profile URL finder with AI enhancements.
 
 Supported engines:
   - "ddgs"        : DuckDuckGo (no keys, instant, ~50 results)
   - "google_api"  : Google Custom Search API (needs api_key + cse_id, 100 free/day)
-  - "playwright"  : Real Chromium browser, scrapes Google directly (no keys needed)
+  - "brave_api"   : Brave Search API (needs api_key, 2,000 free/month)
+
+AI features (requires Anthropic API key):
+  - Multi-query: Claude generates 6 diverse queries → 3-5x more unique profiles
+  - Relevance scoring: Claude scores each profile 0–100 with a one-line reason
 """
 
+import json
 import time
 import random
 import requests
@@ -45,6 +50,16 @@ def clean_url(url: str) -> str:
     return f"https://www.instagram.com/{parsed.path.strip('/')}/"
 
 
+def dedupe_profiles(profiles: list) -> list:
+    """Deduplicate profiles by URL, keeping the first occurrence."""
+    seen, out = set(), []
+    for p in profiles:
+        if p["url"] not in seen:
+            seen.add(p["url"])
+            out.append(p)
+    return out
+
+
 def dedupe(urls: list) -> list:
     seen, out = set(), []
     for u in urls:
@@ -61,118 +76,105 @@ def build_query(niche: str, location: str = "") -> str:
     return q
 
 
+def _make_profile(url: str, snippet: str = "", title: str = "") -> dict:
+    username = urlparse(url).path.strip("/")
+    return {
+        "url": url,
+        "username": username,
+        "snippet": (snippet or title or "").strip(),
+        "score": None,
+        "reason": "",
+    }
+
+
 # ---------------------------------------------------------------------------
-# Engine 1: DuckDuckGo
+# Internal search runners (accept pre-built query strings)
 # ---------------------------------------------------------------------------
 
-def search_ddgs(niche: str, location: str = "", max_results: int = 50) -> dict:
+def _ddgs_run(query: str, max_results: int = 50) -> dict:
     from ddgs import DDGS
-    query = build_query(niche, location)
     try:
         with DDGS() as ddgs:
             raw = list(ddgs.text(query, max_results=max_results))
     except Exception as e:
-        return {"urls": [], "query": query, "error": str(e)}
+        return {"profiles": [], "error": str(e)}
 
-    urls = dedupe([
-        clean_url(r["href"])
+    profiles = dedupe_profiles([
+        _make_profile(
+            clean_url(r["href"]),
+            snippet=r.get("body", ""),
+            title=r.get("title", ""),
+        )
         for r in raw
         if is_profile_url(r.get("href", ""))
     ])
-    return {"urls": urls, "query": query, "error": None}
+    return {"profiles": profiles, "error": None}
 
-
-# ---------------------------------------------------------------------------
-# Engine 2: Google Custom Search API
-# ---------------------------------------------------------------------------
 
 GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1"
 
 
-def search_google_api(
-    niche: str,
-    location: str = "",
+def _google_run(
+    query: str,
     max_results: int = 50,
     api_key: str = "",
     cse_id: str = "",
 ) -> dict:
     if not api_key or not cse_id:
-        return {
-            "urls": [],
-            "query": "",
-            "error": "Google API key and Custom Search Engine ID are required.",
-        }
+        return {"profiles": [], "error": "Google API key and Custom Search Engine ID are required."}
 
-    query = build_query(niche, location)
-    all_urls: list = []
-    # Google CSE returns max 10 per request; start is 1-based
-    pages_needed = -(-min(max_results, 100) // 10)   # ceiling division
+    profiles: list = []
+    pages_needed = -(-min(max_results, 100) // 10)
 
     for page in range(pages_needed):
-        start = page * 10 + 1
         params = {
             "key": api_key,
             "cx": cse_id,
             "q": query,
-            "start": start,
+            "start": page * 10 + 1,
             "num": 10,
         }
         try:
             resp = requests.get(GOOGLE_CSE_URL, params=params, timeout=15)
             data = resp.json()
         except Exception as e:
-            return {"urls": dedupe(all_urls), "query": query, "error": str(e)}
+            return {"profiles": dedupe_profiles(profiles), "error": str(e)}
 
         if "error" in data:
-            msg = data["error"].get("message", "Google API error")
-            return {"urls": dedupe(all_urls), "query": query, "error": msg}
+            return {"profiles": dedupe_profiles(profiles), "error": data["error"].get("message", "Google API error")}
 
         items = data.get("items", [])
         if not items:
-            break  # no more results
+            break
 
         for item in items:
             link = item.get("link", "")
             if is_profile_url(link):
-                all_urls.append(clean_url(link))
+                profiles.append(_make_profile(
+                    clean_url(link),
+                    snippet=item.get("snippet", ""),
+                    title=item.get("title", ""),
+                ))
 
-        if len(all_urls) >= max_results:
+        if len(profiles) >= max_results:
             break
 
-        # Small polite delay between API pages
         if page < pages_needed - 1:
             time.sleep(random.uniform(0.5, 1.2))
 
-    return {"urls": dedupe(all_urls)[:max_results], "query": query, "error": None}
+    return {"profiles": dedupe_profiles(profiles)[:max_results], "error": None}
 
-
-# ---------------------------------------------------------------------------
-# Engine 3: Brave Search API
-# ---------------------------------------------------------------------------
-# Free tier: 2,000 queries/month. Get a key at https://api.search.brave.com
-# Each request returns up to 20 results; paginate via `offset`.
 
 BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
 
 
-def search_brave_api(
-    niche: str,
-    location: str = "",
-    max_results: int = 50,
-    api_key: str = "",
-) -> dict:
+def _brave_run(query: str, max_results: int = 50, api_key: str = "") -> dict:
     if not api_key:
-        return {
-            "urls": [],
-            "query": "",
-            "error": "Brave Search API key is required. Get one free at https://api.search.brave.com",
-        }
+        return {"profiles": [], "error": "Brave Search API key is required."}
 
-    query = build_query(niche, location)
-    all_urls: list = []
-    per_page = 20  # Brave max per request
+    profiles: list = []
+    per_page = 20
     pages_needed = -(-min(max_results, 100) // per_page)
-
     headers = {
         "Accept": "application/json",
         "Accept-Encoding": "gzip",
@@ -180,30 +182,19 @@ def search_brave_api(
     }
 
     for page in range(pages_needed):
-        offset = page * per_page
-        params = {"q": query, "count": per_page, "offset": offset}
-
+        params = {"q": query, "count": per_page, "offset": page * per_page}
         try:
             resp = requests.get(BRAVE_API_URL, headers=headers, params=params, timeout=15)
             data = resp.json()
         except Exception as e:
-            return {"urls": dedupe(all_urls), "query": query, "error": str(e)}
+            return {"profiles": dedupe_profiles(profiles), "error": str(e)}
 
         if resp.status_code == 401:
-            return {
-                "urls": dedupe(all_urls),
-                "query": query,
-                "error": "Invalid Brave API key. Check your key at https://api.search.brave.com",
-            }
+            return {"profiles": dedupe_profiles(profiles), "error": "Invalid Brave API key."}
         if resp.status_code == 429:
-            return {
-                "urls": dedupe(all_urls),
-                "query": query,
-                "error": "Brave API rate limit reached. You've used your monthly free quota.",
-            }
+            return {"profiles": dedupe_profiles(profiles), "error": "Brave API rate limit reached."}
         if resp.status_code != 200:
-            msg = data.get("error", {}).get("message", f"HTTP {resp.status_code}")
-            return {"urls": dedupe(all_urls), "query": query, "error": msg}
+            return {"profiles": dedupe_profiles(profiles), "error": f"HTTP {resp.status_code}"}
 
         results = data.get("web", {}).get("results", [])
         if not results:
@@ -212,19 +203,180 @@ def search_brave_api(
         for item in results:
             link = item.get("url", "")
             if is_profile_url(link):
-                all_urls.append(clean_url(link))
+                profiles.append(_make_profile(
+                    clean_url(link),
+                    snippet=item.get("description", ""),
+                    title=item.get("title", ""),
+                ))
 
-        if len(all_urls) >= max_results:
+        if len(profiles) >= max_results:
             break
 
         if page < pages_needed - 1:
             time.sleep(random.uniform(0.3, 0.8))
 
-    return {"urls": dedupe(all_urls)[:max_results], "query": query, "error": None}
+    return {"profiles": dedupe_profiles(profiles)[:max_results], "error": None}
 
 
 # ---------------------------------------------------------------------------
-# Unified entry point
+# Public: single-query search (used by the multi-query orchestrator)
+# ---------------------------------------------------------------------------
+
+def search_with_query(
+    query: str,
+    engine: str = "ddgs",
+    api_key: str = "",
+    cse_id: str = "",
+    max_results: int = 50,
+) -> dict:
+    """Run a single pre-built query through the chosen engine."""
+    engine = engine.lower().strip()
+    if engine == "google_api":
+        result = _google_run(query, max_results, api_key, cse_id)
+    elif engine == "brave_api":
+        result = _brave_run(query, max_results, api_key)
+    else:
+        result = _ddgs_run(query, max_results)
+
+    result["query"] = query
+    result["engine"] = engine
+    return result
+
+
+# ---------------------------------------------------------------------------
+# AI helpers — Claude Haiku (fast, cost-effective for these simple tasks)
+# ---------------------------------------------------------------------------
+
+def generate_search_queries(
+    niche: str,
+    location: str = "",
+    count: int = 6,
+    anthropic_api_key: str = "",
+) -> list[str]:
+    """
+    Use Claude Haiku to generate diverse Instagram search queries.
+    Queries vary across: job titles, industry terms, self-descriptions, specializations.
+    Falls back to a single default query on any error.
+    """
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=anthropic_api_key or None)
+        location_hint = f" in {location}" if location.strip() else ""
+
+        response = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=600,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Generate {count} diverse Instagram search queries to find "
+                    f"{niche} influencers/creators{location_hint} for brand partnerships.\n\n"
+                    f"Each query MUST start with: site:instagram.com\n"
+                    f"Vary the terms across: professional titles, industry jargon, "
+                    f"self-descriptions, niche specializations, and audience-facing language.\n"
+                    f"Think about how these creators describe themselves in their bios.\n\n"
+                    f"Return ONLY {count} queries, one per line. No numbers, no explanation."
+                ),
+            }],
+        )
+
+        lines = response.content[0].text.strip().splitlines()
+        queries = []
+        for line in lines:
+            q = line.strip().lstrip("0123456789.-) ").strip()
+            if q and "instagram.com" in q:
+                queries.append(q)
+
+        if queries:
+            return queries[:count]
+
+    except Exception:
+        pass
+
+    # Fallback to default single query
+    return [build_query(niche, location)]
+
+
+def score_profiles(
+    profiles: list[dict],
+    niche: str,
+    location: str = "",
+    anthropic_api_key: str = "",
+) -> list[dict]:
+    """
+    Score profile dicts for relevance to the niche using Claude Haiku.
+    Adds 'score' (0–100) and 'reason' (str) to each profile dict.
+    Returns profiles sorted best-first.
+    On any error, returns profiles unscored (score=None).
+    """
+    if not profiles:
+        return profiles
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=anthropic_api_key or None)
+        location_hint = f" in {location}" if location.strip() else ""
+
+        BATCH = 30
+        scored_all: list[dict] = []
+
+        for offset in range(0, len(profiles), BATCH):
+            batch = profiles[offset: offset + BATCH]
+
+            lines = []
+            for j, p in enumerate(batch, 1):
+                snippet = (p.get("snippet") or "").strip()[:120]
+                snap = f' — "{snippet}"' if snippet else ""
+                lines.append(f"{j}. @{p['username']}{snap}")
+
+            prompt = (
+                f"Rate each Instagram profile's relevance (0–100) for finding "
+                f"{niche} creators/influencers{location_hint}.\n\n"
+                + "\n".join(lines)
+                + '\n\nReturn ONLY a JSON array:\n'
+                + '[{"i":1,"score":85,"reason":"reason under 10 words"}, ...]\n'
+                + "No other text."
+            )
+
+            response = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=1024,
+                system=(
+                    "You are an influencer marketing analyst. "
+                    "Score Instagram profiles for niche relevance. Be concise."
+                ),
+                messages=[{"role": "user", "content": prompt}],
+            )
+
+            text = response.content[0].text.strip()
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            score_map: dict = {}
+            if start >= 0 and end > start:
+                try:
+                    score_map = {item["i"]: item for item in json.loads(text[start:end])}
+                except Exception:
+                    pass
+
+            for j, p in enumerate(batch, 1):
+                item = score_map.get(j, {})
+                p["score"] = int(item.get("score", 50)) if item else None
+                p["reason"] = item.get("reason", "") if item else ""
+                scored_all.append(p)
+
+        # Sort by score, best first (None scores go last)
+        scored_all.sort(key=lambda x: x.get("score") or 0, reverse=True)
+        return scored_all
+
+    except Exception:
+        for p in profiles:
+            p.setdefault("score", None)
+            p.setdefault("reason", "")
+        return profiles
+
+
+# ---------------------------------------------------------------------------
+# Legacy entry point (backward compatible)
 # ---------------------------------------------------------------------------
 
 def search_instagram_profiles(
@@ -237,21 +389,9 @@ def search_instagram_profiles(
 ) -> dict:
     """
     Route to the right search engine and return:
-      { urls: list, query: str, error: str|None, engine: str }
-
-    Engines:
-      "ddgs"       — DuckDuckGo (no key, unlimited)
-      "google_api" — Google Custom Search API (api_key + cse_id, 100 free/day)
-      "brave_api"  — Brave Search API (api_key, 2 000 free/month)
+      { urls, profiles, query, error, engine }
     """
-    engine = engine.lower().strip()
-
-    if engine == "google_api":
-        result = search_google_api(niche, location, max_results, api_key, cse_id)
-    elif engine == "brave_api":
-        result = search_brave_api(niche, location, max_results, api_key)
-    else:
-        result = search_ddgs(niche, location, max_results)
-
-    result["engine"] = engine
+    query = build_query(niche, location)
+    result = search_with_query(query, engine, api_key, cse_id, max_results)
+    result["urls"] = [p["url"] for p in result.get("profiles", [])]
     return result
