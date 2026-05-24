@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Instagram Profile Scraper</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f0f0f; }
+    .card  { background: #1a1a1a; border: 1px solid #2a2a2a; }
+    .input-field {
+      background: #111; border: 1px solid #333; color: #fff;
+      transition: border-color 0.2s;
+    }
+    .input-field:focus { outline: none; border-color: #a855f7; }
+
+    /* Engine toggle buttons */
+    .engine-btn {
+      flex: 1; padding: 0.55rem 0.5rem; border-radius: 0.6rem;
+      font-size: 0.78rem; font-weight: 600; transition: all 0.15s;
+      border: 1px solid #2a2a2a; background: #111; color: #888;
+      cursor: pointer; text-align: center;
+    }
+    .engine-btn:hover { border-color: #555; color: #ccc; }
+    .engine-btn.active-ddgs       { background: #1e1333; border-color: #a855f7; color: #d8b4fe; }
+    .engine-btn.active-google_api { background: #0f2218; border-color: #22c55e; color: #86efac; }
+    .engine-btn.active-brave_api  { background: #1a1506; border-color: #f59e0b; color: #fcd34d; }
+
+    .btn-run {
+      background: linear-gradient(135deg, #a855f7, #6366f1);
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn-run:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    .btn-run:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .url-item { animation: slideIn 0.18s ease-out; border-left: 3px solid #a855f7; }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-8px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    .spin { animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+
+    #apiPanel { display: none; }
+  </style>
+</head>
+<body class="min-h-screen text-white p-6">
+<div class="max-w-3xl mx-auto space-y-5">
+
+  <!-- Header -->
+  <div class="text-center pt-8 pb-1">
+    <div class="text-4xl mb-2">📸</div>
+    <h1 class="text-3xl font-bold bg-gradient-to-r from-purple-400 to-indigo-400 bg-clip-text text-transparent">
+      Instagram Profile Scraper
+    </h1>
+    <p class="text-gray-500 mt-1.5 text-sm">Find profiles by niche &amp; location · no login required</p>
+  </div>
+
+  <!-- Main form -->
+  <div class="card rounded-2xl p-6 space-y-5">
+
+    <!-- Engine selector -->
+    <div>
+      <label class="block text-xs text-gray-500 mb-2 uppercase tracking-widest">Search engine</label>
+      <div class="flex gap-2">
+        <button class="engine-btn active-ddgs" id="btn-ddgs" onclick="setEngine('ddgs')">
+          🦆 DuckDuckGo
+          <div class="text-[10px] font-normal text-gray-500 mt-0.5">Free · instant</div>
+        </button>
+        <button class="engine-btn" id="btn-google_api" onclick="setEngine('google_api')">
+          🔍 Google API
+          <div class="text-[10px] font-normal text-gray-500 mt-0.5">100 free/day · needs key</div>
+        </button>
+        <button class="engine-btn" id="btn-brave_api" onclick="setEngine('brave_api')">
+          🦁 Brave Search
+          <div class="text-[10px] font-normal text-gray-500 mt-0.5">2k free/mo · needs key</div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Google API key panel (shown only for google_api) -->
+    <div id="apiPanel" class="bg-[#0f2218] border border-green-900/50 rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-green-400 font-semibold">Google Custom Search API credentials</p>
+        <a href="https://developers.google.com/custom-search/v1/overview"
+           target="_blank" rel="noopener"
+           class="text-xs text-green-600 hover:text-green-400 underline">Setup guide ↗</a>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">API Key</label>
+          <input id="api_key" type="password" placeholder="AIza…"
+            class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
+            oninput="saveKeys()" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">
+            Custom Search Engine ID
+            <a href="https://programmablesearchengine.google.com/controlpanel/create"
+               target="_blank" rel="noopener"
+               class="text-green-600 hover:text-green-400 ml-1">create ↗</a>
+          </label>
+          <input id="cse_id" type="text" placeholder="123456789:abc…"
+            class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
+            oninput="saveKeys()" />
+        </div>
+      </div>
+      <p class="text-xs text-gray-600">
+        Keys are saved in your browser only — never sent anywhere except Google's API.
+      </p>
+    </div>
+
+    <!-- Brave API panel -->
+    <div id="bravePanel" class="hidden bg-[#1a1506] border border-yellow-900/50 rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <p class="text-xs text-yellow-400 font-semibold">Brave Search API key</p>
+        <a href="https://api.search.brave.com/register" target="_blank" rel="noopener"
+           class="text-xs text-yellow-600 hover:text-yellow-400 underline">Get free key ↗</a>
+      </div>
+      <input id="brave_key" type="password" placeholder="BSA…"
+        class="input-field w-full rounded-lg px-3 py-2 text-sm font-mono"
+        oninput="localStorage.setItem('ig_brave_key', this.value)" />
+      <p class="text-xs text-gray-600">
+        Free tier: 2,000 queries/month. Sign up at api.search.brave.com → create a key under
+        "Data for Search" → Free AI plan.
+      </p>
+    </div>
+
+    <!-- Niche + Location -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">
+          Niche / Keyword <span class="text-purple-400">*</span>
+        </label>
+        <input id="niche" type="text" placeholder="e.g. hairdresser, fitness trainer"
+          class="input-field w-full rounded-lg px-4 py-2.5 text-sm" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Location <span class="text-gray-600">(optional)</span></label>
+        <input id="location" type="text" placeholder="e.g. New York, Dubai, London"
+          class="input-field w-full rounded-lg px-4 py-2.5 text-sm" />
+      </div>
+    </div>
+
+    <!-- Max results -->
+    <div>
+      <label class="block text-sm text-gray-400 mb-1">
+        Max results: <span id="maxLabel" class="text-purple-400 font-semibold">50</span>
+      </label>
+      <input id="max_results" type="range" min="10" max="200" step="10" value="50"
+        oninput="document.getElementById('maxLabel').textContent = this.value"
+        class="w-full accent-purple-500" />
+      <div class="flex justify-between text-xs text-gray-700 mt-0.5"><span>10</span><span>200</span></div>
+    </div>
+
+    <button id="startBtn" onclick="startScrape()"
+      class="btn-run w-full py-3 rounded-xl font-semibold text-white text-sm tracking-wide">
+      🔍 Find Profiles
+    </button>
+  </div>
+
+  <!-- Status bar -->
+  <div id="statusBar" class="card rounded-2xl p-5 hidden">
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <span id="statusIcon" class="spin text-purple-400 text-lg">⟳</span>
+        <span id="statusMsg" class="text-sm text-gray-300">Searching…</span>
+      </div>
+      <span id="countBadge"
+        class="text-xs bg-purple-900/50 text-purple-300 px-3 py-1 rounded-full font-mono">
+        0 profiles
+      </span>
+    </div>
+    <div class="w-full bg-gray-800 rounded-full h-1.5">
+      <div id="progressBar"
+        class="bg-gradient-to-r from-purple-500 to-indigo-500 h-1.5 rounded-full transition-all duration-300"
+        style="width:0%"></div>
+    </div>
+    <p id="queryDisplay" class="text-xs text-gray-700 mt-3 font-mono truncate"></p>
+  </div>
+
+  <!-- Error / warning banners -->
+  <div id="errorBanner" class="hidden bg-red-900/40 border border-red-700 text-red-300 rounded-xl px-4 py-3 text-sm"></div>
+
+  <!-- Results -->
+  <div id="resultsSection" class="card rounded-2xl hidden">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-800">
+      <h2 class="font-semibold text-gray-200">Profiles found</h2>
+      <div class="flex gap-2">
+        <button onclick="copyAll()"
+          class="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors">
+          📋 Copy all
+        </button>
+        <button id="downloadBtn" onclick="downloadCSV()" disabled
+          class="text-xs bg-purple-900/60 hover:bg-purple-800 disabled:opacity-40 disabled:cursor-not-allowed
+                 text-purple-200 px-3 py-1.5 rounded-lg transition-colors">
+          ⬇ Download CSV
+        </button>
+      </div>
+    </div>
+    <div id="urlList" class="divide-y divide-gray-800/60 max-h-[440px] overflow-y-auto"></div>
+  </div>
+
+  <!-- Done banner -->
+  <div id="doneBanner" class="hidden card rounded-2xl px-6 py-5 text-center">
+    <p class="text-green-400 font-semibold text-lg">✅ Done!</p>
+    <p id="doneMsg" class="text-gray-400 text-sm mt-1"></p>
+  </div>
+
+  <p class="text-center text-xs text-gray-700 pb-6">
+    Profile URLs only · no Instagram login required
+  </p>
+</div>
+
+<script>
+  // ── State ──────────────────────────────────────────────────────────────────
+  let collectedUrls = [];
+  let currentNiche  = '';
+  let maxExpected   = 50;
+  let currentEngine = 'ddgs';
+  let evtSrc        = null;
+
+  // ── Engine selector ────────────────────────────────────────────────────────
+  function setEngine(eng) {
+    currentEngine = eng;
+    ['ddgs','google_api','brave_api'].forEach(e => {
+      const btn = document.getElementById(`btn-${e}`);
+      btn.className = `engine-btn${e === eng ? ` active-${e}` : ''}`;
+    });
+    document.getElementById('apiPanel').style.display    = (eng === 'google_api') ? 'block' : 'none';
+    document.getElementById('bravePanel').classList.toggle('hidden', eng !== 'brave_api');
+    // Restore saved keys
+    if (eng === 'google_api') {
+      document.getElementById('api_key').value  = localStorage.getItem('ig_api_key') || '';
+      document.getElementById('cse_id').value   = localStorage.getItem('ig_cse_id')  || '';
+    }
+    if (eng === 'brave_api') {
+      document.getElementById('brave_key').value = localStorage.getItem('ig_brave_key') || '';
+    }
+    localStorage.setItem('ig_engine', eng);
+  }
+
+  function saveKeys() {
+    localStorage.setItem('ig_api_key', document.getElementById('api_key').value);
+    localStorage.setItem('ig_cse_id',  document.getElementById('cse_id').value);
+  }
+
+  // ── Scraping ───────────────────────────────────────────────────────────────
+  function startScrape() {
+    const niche      = document.getElementById('niche').value.trim();
+    const location   = document.getElementById('location').value.trim();
+    const maxResults = document.getElementById('max_results').value;
+
+    if (!niche) { document.getElementById('niche').focus(); return; }
+
+    // Validation for API-key engines
+    if (currentEngine === 'google_api') {
+      const key = document.getElementById('api_key').value.trim();
+      const cx  = document.getElementById('cse_id').value.trim();
+      if (!key || !cx) {
+        document.getElementById('errorBanner').textContent = '❌ Enter your Google API Key and Custom Search Engine ID first.';
+        document.getElementById('errorBanner').classList.remove('hidden');
+        return;
+      }
+    }
+    if (currentEngine === 'brave_api') {
+      const key = document.getElementById('brave_key').value.trim();
+      if (!key) {
+        document.getElementById('errorBanner').textContent = '❌ Enter your Brave Search API key first. Get one free at api.search.brave.com';
+        document.getElementById('errorBanner').classList.remove('hidden');
+        return;
+      }
+    }
+
+    // Reset UI
+    collectedUrls = [];
+    currentNiche  = niche;
+    maxExpected   = parseInt(maxResults);
+
+    document.getElementById('urlList').innerHTML = '';
+    document.getElementById('errorBanner').classList.add('hidden');
+    document.getElementById('doneBanner').classList.add('hidden');
+    document.getElementById('resultsSection').classList.add('hidden');
+    document.getElementById('statusBar').classList.remove('hidden');
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('countBadge').textContent  = '0 profiles';
+    document.getElementById('downloadBtn').disabled    = true;
+    document.getElementById('startBtn').disabled       = true;
+    document.getElementById('startBtn').textContent    = '⏳ Searching…';
+    document.getElementById('statusIcon').className    = 'spin text-purple-400 text-lg';
+    document.getElementById('statusIcon').textContent  = '⟳';
+
+    const extraParams = {};
+    if (currentEngine === 'google_api') {
+      extraParams.api_key = document.getElementById('api_key').value.trim();
+      extraParams.cse_id  = document.getElementById('cse_id').value.trim();
+    }
+    if (currentEngine === 'brave_api') {
+      extraParams.api_key = document.getElementById('brave_key').value.trim();
+    }
+
+    const params = new URLSearchParams({
+      niche, location, max_results: maxResults, engine: currentEngine,
+      ...extraParams,
+    });
+
+    if (evtSrc) evtSrc.close();
+    evtSrc = new EventSource(`/scrape?${params}`);
+
+    evtSrc.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === 'status') setStatus(msg.message);
+
+      if (msg.type === 'query') {
+        document.getElementById('queryDisplay').textContent = `Query: ${msg.query}`;
+      }
+
+      if (msg.type === 'urls') {
+        msg.new_urls.forEach(appendUrl);
+        updateCount(msg.total_count);
+        const pct = Math.min((msg.total_count / maxExpected) * 100, 95);
+        document.getElementById('progressBar').style.width = pct + '%';
+        document.getElementById('resultsSection').classList.remove('hidden');
+        document.getElementById('downloadBtn').disabled = false;
+        setStatus(`Found ${msg.total_count} profile${msg.total_count !== 1 ? 's' : ''}…`);
+      }
+
+      if (msg.type === 'error') {
+        const b = document.getElementById('errorBanner');
+        b.textContent = `❌ ${msg.message}`;
+        b.classList.remove('hidden');
+        finish();
+      }
+
+      if (msg.type === 'done') {
+        document.getElementById('progressBar').style.width = '100%';
+        document.getElementById('statusIcon').className   = 'text-green-400 text-lg';
+        document.getElementById('statusIcon').textContent = '✓';
+        setStatus('Complete');
+        document.getElementById('doneMsg').textContent = msg.message;
+        document.getElementById('doneBanner').classList.remove('hidden');
+        finish();
+      }
+    };
+
+    evtSrc.onerror = () => {
+      const b = document.getElementById('errorBanner');
+      if (!b.textContent) {
+        b.textContent = '❌ Connection dropped. Any results above are still valid.';
+        b.classList.remove('hidden');
+      }
+      finish();
+    };
+  }
+
+  function appendUrl(url) {
+    if (collectedUrls.includes(url)) return;
+    collectedUrls.push(url);
+    const username = url.replace('https://www.instagram.com/', '').replace(/\/$/, '');
+    const idx = collectedUrls.length;
+    const item = document.createElement('div');
+    item.className = 'url-item px-6 py-3 flex items-center justify-between gap-4 hover:bg-white/[0.02]';
+    item.innerHTML = `
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="text-purple-600 text-xs font-mono w-6 text-right flex-shrink-0">${idx}</span>
+        <a href="${url}" target="_blank" rel="noopener"
+           class="text-sm text-blue-400 hover:text-blue-300 truncate transition-colors">@${username}</a>
+      </div>
+      <button
+        onclick="navigator.clipboard.writeText('${url}'); this.textContent='✓'; setTimeout(()=>this.textContent='copy',1200)"
+        class="text-xs text-gray-600 hover:text-gray-400 flex-shrink-0 w-8 transition-colors">copy</button>
+    `;
+    const list = document.getElementById('urlList');
+    list.appendChild(item);
+    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function updateCount(n) {
+    document.getElementById('countBadge').textContent = `${n} profile${n !== 1 ? 's' : ''}`;
+  }
+
+  function setStatus(msg) {
+    document.getElementById('statusMsg').textContent = msg;
+  }
+
+  function finish() {
+    if (evtSrc) { evtSrc.close(); evtSrc = null; }
+    document.getElementById('startBtn').disabled    = false;
+    document.getElementById('startBtn').textContent = '🔍 Find Profiles';
+  }
+
+  function copyAll() {
+    if (!collectedUrls.length) return;
+    navigator.clipboard.writeText(collectedUrls.join('\n')).then(() => {
+      const btn = event.target;
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => btn.textContent = '📋 Copy all', 1500);
+    });
+  }
+
+  function downloadCSV() {
+    if (!collectedUrls.length) return;
+    fetch('/download', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls: collectedUrls, niche: currentNiche }),
+    }).then(r => r.blob()).then(blob => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${currentNiche.replace(/\s+/g, '_')}_profiles.csv`;
+      a.click();
+    });
+  }
+
+  // Enter key triggers search
+  ['niche','location'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if (e.key === 'Enter') startScrape();
+    });
+  });
+
+  // Restore last engine on load
+  const savedEngine = localStorage.getItem('ig_engine') || 'ddgs';
+  setEngine(savedEngine);
+  document.getElementById('max_results').dispatchEvent(new Event('input'));
+</script>
+</body>
+</html>
