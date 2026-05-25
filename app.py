@@ -265,6 +265,123 @@ def enrich():
     )
 
 
+@app.route("/send_dms", methods=["POST"])
+def send_dms():
+    """
+    Stream DM send results one profile at a time.
+    Body: { urls, message, do_follow, delay_min, delay_max }
+    Streams SSE: dm_status | dm_result | dm_done | error
+    """
+    import random as _random
+    from enricher import get_ig_client
+    from dm_sender import follow_and_dm, personalise
+
+    body      = request.get_json(silent=True) or {}
+    urls      = [u for u in body.get("urls", []) if u.strip()]
+    template  = body.get("message", "").strip()
+    do_follow = body.get("do_follow", True)
+    delay_min = float(body.get("delay_min", 45))
+    delay_max = float(body.get("delay_max", 90))
+
+    ig_user = os.getenv("IG_USERNAME", "").strip()
+    ig_pass = os.getenv("IG_PASSWORD", "").strip()
+
+    def event(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    def generate():
+        if not urls:
+            yield event({"type": "error", "message": "No recipients selected."})
+            return
+        if not template:
+            yield event({"type": "error", "message": "Message cannot be empty."})
+            return
+        if not ig_user or not ig_pass:
+            yield event({"type": "error", "message": "IG_USERNAME / IG_PASSWORD not set in .env"})
+            return
+
+        yield event({"type": "dm_status", "message": "🔐 Connecting to Instagram…"})
+        cl = get_ig_client(ig_user, ig_pass)
+        if not cl:
+            yield event({"type": "error", "message": "Instagram login failed. Check your credentials."})
+            return
+
+        yield event({
+            "type": "dm_status",
+            "message": f"✅ Connected · sending {len(urls)} DM{'s' if len(urls) != 1 else ''}…",
+        })
+
+        sent_count  = 0
+        fail_count  = 0
+
+        for i, url in enumerate(urls):
+            from urllib.parse import urlparse
+            username = urlparse(url).path.strip("/")
+            msg      = personalise(template, username)
+
+            yield event({
+                "type":     "dm_status",
+                "message":  f"Sending to @{username} ({i+1}/{len(urls)})…",
+                "progress": i,
+                "total":    len(urls),
+            })
+
+            result = follow_and_dm(cl, username, msg, do_follow=do_follow)
+
+            if result["sent"]:
+                sent_count += 1
+            else:
+                fail_count += 1
+
+            yield event({
+                "type":      "dm_result",
+                "username":  username,
+                "url":       url,
+                "sent":      result["sent"],
+                "followed":  result["followed"],
+                "error":     result["error"],
+                "progress":  i + 1,
+                "total":     len(urls),
+                "sent_count": sent_count,
+                "fail_count": fail_count,
+            })
+
+            # Hard stop if Instagram is clearly blocking us
+            if result["error"] and (
+                "flagged" in (result["error"] or "").lower()
+                or "rate limited" in (result["error"] or "").lower()
+            ):
+                yield event({
+                    "type":    "error",
+                    "message": f"⚠️ {result['error']} — stopping to protect your account.",
+                })
+                break
+
+            # Human-like delay between sends (skip after last)
+            if i < len(urls) - 1:
+                delay = _random.uniform(delay_min, delay_max)
+                yield event({
+                    "type":    "dm_status",
+                    "message": f"Waiting {delay:.0f}s before next DM…",
+                    "progress": i + 1,
+                    "total":   len(urls),
+                })
+                time.sleep(delay)
+
+        yield event({
+            "type":       "dm_done",
+            "sent_count": sent_count,
+            "fail_count": fail_count,
+            "message":    f"Done · {sent_count} sent · {fail_count} failed",
+        })
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.route("/download", methods=["POST"])
 def download():
     data     = request.get_json(silent=True) or {}
@@ -283,9 +400,10 @@ def download():
     headers = ["instagram_url", "username"]
     if has_enrich:
         headers += [
-            "full_name", "email", "phone",
-            "location", "formatted_address", "lat", "lng",
-            "category", "is_business",
+            "full_name", "followers", "posts",
+            "email", "phone",
+            "city_state", "location_raw", "formatted_address", "lat", "lng",
+            "category", "is_business", "is_verified",
         ]
     if has_scores:
         headers += ["score", "score_reason"]
@@ -298,14 +416,18 @@ def download():
             e = enriched.get(url, {})
             row += [
                 e.get("full_name",         ""),
+                e.get("follower_count",    ""),
+                e.get("media_count",       ""),
                 e.get("email",             ""),
                 e.get("phone",             ""),
+                e.get("city_state",        ""),
                 e.get("location_text",     ""),
                 e.get("formatted_address", ""),
                 e.get("lat",               ""),
                 e.get("lng",               ""),
                 e.get("category",          ""),
                 "yes" if e.get("is_business") else "",
+                "yes" if e.get("is_verified") else "",
             ]
         if has_scores:
             s = scores.get(url, {})

@@ -45,10 +45,54 @@
       padding: 0.85rem 1rem;
     }
     .query-chip {
-      display: inline-block; font-size: 0.7rem; background: #1e1333;
-      border: 1px solid #4c1d95; border-radius: 0.4rem; padding: 0.2rem 0.5rem;
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.7rem; background: #1e1333;
+      border: 1px solid #4c1d95; border-radius: 0.4rem;
+      padding: 0.2rem 0.4rem 0.2rem 0.5rem;
       color: #c4b5fd; margin: 0.15rem; font-family: monospace;
     }
+    .query-chip .del-btn {
+      font-size: 0.65rem; color: #7c3aed; cursor: pointer;
+      line-height: 1; padding: 0 0.1rem; border-radius: 2px;
+      transition: color 0.15s;
+    }
+    .query-chip .del-btn:hover { color: #f87171; }
+    #addQueryRow { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+    #newQueryInput {
+      flex: 1; background: #0d0920; border: 1px solid #3b1f6b;
+      color: #c4b5fd; border-radius: 0.4rem; padding: 0.3rem 0.6rem;
+      font-size: 0.72rem; font-family: monospace; outline: none;
+    }
+    #newQueryInput:focus { border-color: #7c3aed; }
+    #newQueryInput::placeholder { color: #4c3575; }
+
+    /* DM panel */
+    #dmPanel { background: #0d1a0d; border: 1px solid #1a3a1a; border-radius: 0.75rem; }
+    #dmTextarea {
+      width: 100%; background: #0a120a; border: 1px solid #1a3a1a; color: #d1fae5;
+      border-radius: 0.5rem; padding: 0.65rem 0.75rem; font-size: 0.82rem;
+      line-height: 1.55; resize: vertical; min-height: 90px; outline: none;
+      font-family: inherit;
+    }
+    #dmTextarea:focus { border-color: #22c55e; }
+    #dmTextarea::placeholder { color: #2d4a2d; }
+    /* Greeting option buttons */
+    .greet-opt {
+      background: #0a120a; border-color: #1a3a1a; color: #4b7a4b;
+      transition: all 0.15s;
+    }
+    .greet-opt:hover { border-color: #22c55e; color: #86efac; }
+    .active-greet { background: #14532d !important; border-color: #22c55e !important; color: #86efac !important; }
+    .dm-sent    { border-left-color: #22c55e !important; }
+    .dm-failed  { border-left-color: #ef4444 !important; }
+    .dm-pending { border-left-color: #f59e0b !important; }
+    .dm-badge {
+      font-size: 0.6rem; font-weight: 700; border-radius: 9999px;
+      padding: 0.1rem 0.4rem; border: 1px solid; flex-shrink: 0; white-space: nowrap;
+    }
+    .dm-badge-sent   { background:#14532d; color:#86efac; border-color:#166534; }
+    .dm-badge-failed { background:#450a0a; color:#fca5a5; border-color:#7f1d1d; }
+    .dm-badge-skip   { background:#1c1c1c; color:#6b7280; border-color:#374151; }
 
     /* Enrichment contact row */
     .enrich-row { display: none; flex-wrap: wrap; gap: 0.25rem 0.75rem; margin-top: 0.2rem; }
@@ -57,11 +101,14 @@
       font-size: 0.68rem; padding: 0.1rem 0.45rem; border-radius: 9999px;
       border: 1px solid; white-space: nowrap; font-family: monospace;
     }
-    .enrich-email { background:#0c2a1a; border-color:#166534; color:#4ade80; }
-    .enrich-phone { background:#0c1e2e; border-color:#1e40af; color:#60a5fa; }
-    .enrich-loc   { background:#1a1208; border-color:#78350f; color:#fbbf24; }
-    .enrich-gps   { background:#111827; border-color:#374151; color:#9ca3af; }
-    .enrich-cat   { background:#1e0a3c; border-color:#5b21b6; color:#c4b5fd; }
+    .enrich-email     { background:#0c2a1a; border-color:#166534; color:#4ade80; }
+    .enrich-phone     { background:#0c1e2e; border-color:#1e40af; color:#60a5fa; }
+    .enrich-loc       { background:#1a1208; border-color:#78350f; color:#fbbf24; }
+    .enrich-gps       { background:#111827; border-color:#374151; color:#9ca3af; }
+    .enrich-cat       { background:#1e0a3c; border-color:#5b21b6; color:#c4b5fd; }
+    .enrich-followers { background:#0f172a; border-color:#1e3a5f; color:#7dd3fc; }
+    .enrich-posts     { background:#0f172a; border-color:#1e3a5f; color:#94a3b8; }
+    .enrich-verified  { background:#1c1207; border-color:#92400e; color:#fbbf24; }
 
     /* Enrichment progress bar */
     #enrichBar { background: #101820; border: 1px solid #1e3a5f; border-radius: 0.75rem; padding: 0.85rem 1rem; }
@@ -129,11 +176,25 @@
   <!-- AI Queries panel -->
   <div id="aiQueriesSection" class="hidden">
     <div id="aiQueriesPanel">
-      <div class="flex items-center gap-2 mb-2">
-        <span class="text-purple-400 text-xs font-semibold uppercase tracking-wider">✦ AI-generated queries</span>
-        <span id="queriesCount" class="text-xs text-gray-600"></span>
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-purple-400 text-xs font-semibold uppercase tracking-wider">✦ AI-generated queries</span>
+          <span id="queriesCount" class="text-xs text-gray-600"></span>
+        </div>
+        <span class="text-xs text-gray-600">Click × to remove · add your own below</span>
       </div>
       <div id="queriesChips"></div>
+      <!-- Add custom query row -->
+      <div id="addQueryRow">
+        <input id="newQueryInput" type="text"
+          placeholder="site:instagram.com your custom query…"
+          onkeydown="if(event.key==='Enter') addQuery()" />
+        <button onclick="addQuery()"
+          class="text-xs bg-purple-900/60 hover:bg-purple-800 text-purple-300
+                 px-3 py-1 rounded-md transition-colors border border-purple-800/50 whitespace-nowrap">
+          + Add
+        </button>
+      </div>
     </div>
   </div>
 
@@ -219,6 +280,169 @@
     <p id="doneMsg" class="text-gray-400 text-sm mt-1"></p>
   </div>
 
+  <!-- ── DM Outreach Panel ──────────────────────────────────────────────── -->
+  <div id="dmSection" class="hidden space-y-0">
+    <div id="dmPanel" class="rounded-2xl overflow-hidden">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-green-900/40">
+        <div>
+          <h2 class="font-semibold text-green-300">✉️ DM Outreach</h2>
+          <p class="text-xs text-gray-600 mt-0.5">Compose your message · review recipients · send</p>
+        </div>
+        <button onclick="document.getElementById('dmSection').classList.add('hidden')"
+          class="text-gray-600 hover:text-gray-400 text-lg leading-none">×</button>
+      </div>
+
+      <div class="p-6 space-y-5">
+
+        <!-- Message composer -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm text-gray-400 font-medium">Message</label>
+            <span id="charCount" class="text-xs text-gray-600 font-mono">0 chars</span>
+          </div>
+
+          <!-- Fixed greeting (read-only, auto-personalised) -->
+          <div class="flex items-center gap-2 mb-1.5">
+            <span class="text-xs text-gray-600 uppercase tracking-wider">Greeting</span>
+            <div class="flex gap-1.5">
+              <button onclick="setGreeting('Hi {username} 👋,')"
+                id="greetBtn0"
+                class="greet-opt active-greet text-xs px-2.5 py-0.5 rounded-md border transition-colors">
+                Hi {username}
+              </button>
+              <button onclick="setGreeting('Hey {username}! 🙌')"
+                id="greetBtn1"
+                class="greet-opt text-xs px-2.5 py-0.5 rounded-md border transition-colors">
+                Hey {username}
+              </button>
+              <button onclick="setGreeting('Hello {name},')"
+                id="greetBtn2"
+                class="greet-opt text-xs px-2.5 py-0.5 rounded-md border transition-colors">
+                Hello {name}
+              </button>
+            </div>
+          </div>
+
+          <!-- Greeting preview chip -->
+          <div class="bg-black/30 border border-green-900/30 rounded-t-lg px-4 py-2 text-sm text-green-300 font-medium select-none"
+               id="greetingDisplay">Hi @username 👋,</div>
+
+          <!-- Body textarea -->
+          <textarea id="dmTextarea" rows="4"
+            placeholder="Write your message here…&#10;&#10;e.g. I came across your profile and love your work! We'd love to explore a collaboration. Would you be open to a quick chat?"
+            oninput="updatePreview(); updateCharCount()"
+            class="rounded-t-none border-t-0"
+            style="border-top-left-radius:0; border-top-right-radius:0;"></textarea>
+
+          <!-- Insert variable buttons -->
+          <div class="flex gap-3 mt-1.5 text-xs text-gray-600">
+            <span>Insert:</span>
+            <button onclick="insertVar('{username}')" class="hover:text-green-400 transition-colors font-mono">{username}</button>
+            <button onclick="insertVar('{name}')"     class="hover:text-green-400 transition-colors font-mono">{name}</button>
+            <span class="ml-auto text-gray-700">Instagram limit ~1000 chars</span>
+          </div>
+        </div>
+
+        <!-- Live preview -->
+        <div id="previewBox" class="hidden bg-black/30 border border-green-900/30 rounded-lg px-4 py-3">
+          <p class="text-xs text-gray-600 uppercase tracking-wider mb-1">Preview for first recipient</p>
+          <p id="previewText" class="text-sm text-gray-300 whitespace-pre-wrap"></p>
+        </div>
+
+        <!-- Follow option -->
+        <label class="flex items-center gap-3 cursor-pointer select-none">
+          <input type="checkbox" id="doFollow" checked
+            class="w-4 h-4 accent-green-500 rounded cursor-pointer" />
+          <span class="text-sm text-gray-400">
+            Follow account before DMing
+            <span class="text-gray-600 text-xs">(reduces spam flags · recommended)</span>
+          </span>
+        </label>
+
+        <!-- Recipient list -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm text-gray-400 font-medium">
+              Recipients
+              <span id="recipientCount" class="text-green-400 font-semibold ml-1">0 selected</span>
+            </label>
+            <div class="flex gap-2">
+              <button onclick="selectAllRecipients(true)"
+                class="text-xs text-gray-600 hover:text-gray-400 transition-colors">Select all</button>
+              <span class="text-gray-700">·</span>
+              <button onclick="selectAllRecipients(false)"
+                class="text-xs text-gray-600 hover:text-gray-400 transition-colors">None</button>
+            </div>
+          </div>
+
+          <!-- Add custom recipient -->
+          <div class="flex gap-2 mb-2">
+            <input id="addRecipientInput" type="text"
+              placeholder="Add username or instagram.com/… URL"
+              class="input-field flex-1 rounded-lg px-3 py-1.5 text-sm"
+              onkeydown="if(event.key==='Enter') addRecipient()" />
+            <button onclick="addRecipient()"
+              class="text-xs bg-green-900/40 hover:bg-green-800/60 text-green-300
+                     px-3 py-1.5 rounded-lg border border-green-800/50 transition-colors whitespace-nowrap">
+              + Add
+            </button>
+          </div>
+
+          <div id="recipientList"
+            class="max-h-64 overflow-y-auto space-y-1 rounded-lg border border-green-900/30 p-2 bg-black/20">
+            <p class="text-xs text-gray-700 text-center py-4">
+              Recipients appear here after a search. You can also add manually above.
+            </p>
+          </div>
+        </div>
+
+        <!-- Send controls -->
+        <div class="flex items-center gap-3 pt-1">
+          <button id="sendBtn" onclick="startSendDMs()"
+            class="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white tracking-wide
+                   bg-gradient-to-r from-green-600 to-emerald-500
+                   hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity">
+            ✉️ Send DMs
+          </button>
+          <button id="stopDmBtn" onclick="stopDMs()" class="hidden
+            text-xs bg-red-900/40 hover:bg-red-800/60 text-red-300
+            px-4 py-2.5 rounded-xl border border-red-800/50 transition-colors">
+            ⏹ Stop
+          </button>
+        </div>
+
+        <!-- ⚠️ Limit warning -->
+        <div class="bg-yellow-950/40 border border-yellow-800/40 rounded-lg px-4 py-2.5 text-xs text-yellow-600">
+          ⚠️ Keep daily sends under 50 to avoid Instagram restricting your account.
+          A random 45–90s delay is added between each DM to mimic human behaviour.
+        </div>
+
+      </div><!-- /p-6 -->
+
+      <!-- DM progress (hidden until send starts) -->
+      <div id="dmProgress" class="hidden border-t border-green-900/40 px-6 py-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="dmProgressIcon" class="spin text-green-400 text-lg">⟳</span>
+            <span id="dmProgressMsg" class="text-sm text-gray-300">Sending…</span>
+          </div>
+          <div class="flex gap-3 text-xs font-mono">
+            <span class="text-green-400">✓ <span id="dmSentCount">0</span> sent</span>
+            <span class="text-red-400">✗ <span id="dmFailCount">0</span> failed</span>
+          </div>
+        </div>
+        <div class="w-full bg-gray-800 rounded-full h-1.5">
+          <div id="dmProgressBar"
+            class="bg-gradient-to-r from-green-500 to-emerald-400 h-1.5 rounded-full transition-all duration-500"
+            style="width:0%"></div>
+        </div>
+      </div>
+
+    </div><!-- /dmPanel -->
+  </div><!-- /dmSection -->
+
   <p class="text-center text-xs text-gray-700 pb-6">
     Profile URLs only · no Instagram login required for search
   </p>
@@ -236,6 +460,7 @@
   let sortedByScore = false;
   let enrichRunning = false;
   let enrichEmailCount = 0, enrichPhoneCount = 0, enrichLocCount = 0;
+  let dmAbort = false;
 
   // ── Score helpers ──────────────────────────────────────────────────────────
   function applyScores() {
@@ -265,6 +490,13 @@
   }
 
   // ── Enrichment helpers ─────────────────────────────────────────────────────
+  function fmtNum(n) {
+    if (n == null) return '';
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1_000)     return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(n);
+  }
+
   function applyEnrichment(url, p) {
     enrichMap[url] = p;
     const item = document.querySelector(`[data-url="${CSS.escape(url)}"]`);
@@ -274,16 +506,30 @@
     if (!row) return;
 
     const tags = [];
+
+    // Stats row first (always shown if available)
+    if (p.follower_count != null)
+      tags.push(`<span class="enrich-tag enrich-followers">👥 ${fmtNum(p.follower_count)} followers</span>`);
+    if (p.media_count != null)
+      tags.push(`<span class="enrich-tag enrich-posts">📸 ${fmtNum(p.media_count)} posts</span>`);
+    if (p.is_verified)
+      tags.push(`<span class="enrich-tag enrich-verified">✓ Verified</span>`);
+    if (p.category)
+      tags.push(`<span class="enrich-tag enrich-cat">${p.category}</span>`);
+
+    // Contact info
     if (p.email)
       tags.push(`<span class="enrich-tag enrich-email" title="${p.email}">📧 ${p.email}</span>`);
     if (p.phone)
       tags.push(`<span class="enrich-tag enrich-phone">${p.phone}</span>`);
-    if (p.formatted_address || p.location_text)
-      tags.push(`<span class="enrich-tag enrich-loc">📍 ${p.formatted_address || p.location_text}</span>`);
+
+    // Location — prefer city_state, fall back to raw text
+    const locLabel = p.city_state || p.location_text || '';
+    const locTitle = p.formatted_address || p.city_state || p.location_text || '';
+    if (locLabel)
+      tags.push(`<span class="enrich-tag enrich-loc" title="${locTitle}">📍 ${locLabel}</span>`);
     if (p.lat != null && p.lng != null)
-      tags.push(`<span class="enrich-tag enrich-gps">🗺 ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</span>`);
-    if (p.category)
-      tags.push(`<span class="enrich-tag enrich-cat">${p.category}</span>`);
+      tags.push(`<span class="enrich-tag enrich-gps" title="GPS coordinates">🗺 ${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</span>`);
 
     if (tags.length) {
       row.innerHTML = tags.join('');
@@ -291,16 +537,58 @@
     }
   }
 
-  // ── AI queries display ─────────────────────────────────────────────────────
+  // ── AI queries display & editing ──────────────────────────────────────────
   function showAiQueries(queries) {
-    const section = document.getElementById('aiQueriesSection');
-    const chips   = document.getElementById('queriesChips');
-    const count   = document.getElementById('queriesCount');
-    section.classList.remove('hidden');
-    count.textContent = `${queries.length} queries`;
-    chips.innerHTML = queries.map(q =>
-      `<span class="query-chip">${q.replace(/</g,'&lt;')}</span>`
-    ).join('');
+    document.getElementById('aiQueriesSection').classList.remove('hidden');
+    document.getElementById('queriesChips').innerHTML = '';
+    queries.forEach(addChip);
+    updateQueryCount();
+  }
+
+  function addChip(query) {
+    const q = query.trim();
+    if (!q) return;
+    // Avoid duplicates
+    const existing = Array.from(document.querySelectorAll('.query-chip'))
+                          .map(el => el.dataset.query);
+    if (existing.includes(q)) return;
+
+    const chip = document.createElement('span');
+    chip.className    = 'query-chip';
+    chip.dataset.query = q;
+    chip.innerHTML = `
+      <span class="chip-text">${q.replace(/</g,'&lt;')}</span>
+      <span class="del-btn" onclick="removeQuery(this)" title="Remove">×</span>
+    `;
+    document.getElementById('queriesChips').appendChild(chip);
+    updateQueryCount();
+  }
+
+  function removeQuery(btn) {
+    btn.closest('.query-chip').remove();
+    updateQueryCount();
+  }
+
+  function addQuery() {
+    const input = document.getElementById('newQueryInput');
+    let q = input.value.trim();
+    if (!q) return;
+    // Auto-prefix with site:instagram.com if missing
+    if (!q.includes('instagram.com')) q = 'site:instagram.com ' + q;
+    addChip(q);
+    input.value = '';
+    input.focus();
+  }
+
+  function updateQueryCount() {
+    const n = document.querySelectorAll('.query-chip').length;
+    document.getElementById('queriesCount').textContent = `${n} quer${n === 1 ? 'y' : 'ies'}`;
+  }
+
+  function getActiveQueries() {
+    return Array.from(document.querySelectorAll('.query-chip'))
+                .map(el => el.dataset.query)
+                .filter(Boolean);
   }
 
   // ── Scraping ───────────────────────────────────────────────────────────────
@@ -316,7 +604,15 @@
     currentNiche  = niche;
     maxExpected   = parseInt(maxResults);
 
-    document.getElementById('urlList').innerHTML   = '';
+    document.getElementById('urlList').innerHTML      = '';
+    document.getElementById('queriesChips').innerHTML  = '';
+    document.getElementById('newQueryInput').value     = '';
+    document.getElementById('dmSection').classList.add('hidden');
+    document.getElementById('recipientList').innerHTML = '<p class="text-xs text-gray-700 text-center py-4">Recipients appear here after a search.</p>';
+    document.getElementById('dmProgress').classList.add('hidden');
+    document.getElementById('dmProgressBar').style.width = '0%';
+    document.getElementById('dmSentCount').textContent = '0';
+    document.getElementById('dmFailCount').textContent = '0';
     document.getElementById('errorBanner').classList.add('hidden');
     document.getElementById('doneBanner').classList.add('hidden');
     document.getElementById('resultsSection').classList.add('hidden');
@@ -384,9 +680,11 @@
         setStatus('Complete');
         document.getElementById('doneMsg').textContent       = msg.message;
         document.getElementById('doneBanner').classList.remove('hidden');
-        // Show enrich button if we have results
+        // Show enrich button + DM panel if we have results
         if (collectedUrls.length > 0) {
           document.getElementById('enrichBtn').classList.remove('hidden');
+          populateDMRecipients(collectedUrls);
+          document.getElementById('dmSection').classList.remove('hidden');
         }
         finish();
       }
@@ -560,6 +858,228 @@
       a.download = `${currentNiche.replace(/\s+/g, '_')}_profiles.csv`;
       a.click();
     });
+  }
+
+  // ── DM Panel ───────────────────────────────────────────────────────────────
+
+  function populateDMRecipients(urls) {
+    const list = document.getElementById('recipientList');
+    list.innerHTML = '';
+    urls.forEach(url => addRecipientRow(url));
+    updateRecipientCount();
+    updatePreview();
+  }
+
+  function addRecipientRow(url) {
+    const username = url.replace('https://www.instagram.com/', '').replace(/\/$/, '');
+    const enrich   = enrichMap[url] || {};
+    const email    = enrich.email ? `<span class="text-emerald-600 text-xs ml-1">${enrich.email}</span>` : '';
+    const name     = enrich.full_name ? `<span class="text-gray-600 text-xs ml-1">${enrich.full_name}</span>` : '';
+    const id       = `rcpt-${username}`;
+
+    const row = document.createElement('label');
+    row.className  = 'flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/[0.03] cursor-pointer';
+    row.setAttribute('for', id);
+    row.dataset.url = url;
+    row.innerHTML = `
+      <input type="checkbox" id="${id}" checked
+        class="w-3.5 h-3.5 accent-green-500 flex-shrink-0"
+        onchange="updateRecipientCount()" />
+      <span class="text-sm text-blue-400 flex-shrink-0">@${username}</span>
+      ${name}${email}
+      <button onclick="event.preventDefault(); this.closest('label').remove(); updateRecipientCount();"
+        class="ml-auto text-gray-700 hover:text-red-400 text-xs transition-colors flex-shrink-0">✕</button>
+    `;
+    document.getElementById('recipientList').appendChild(row);
+  }
+
+  function addRecipient() {
+    let val = document.getElementById('addRecipientInput').value.trim();
+    if (!val) return;
+    // Accept @username, username, or full URL
+    if (val.startsWith('@')) val = val.slice(1);
+    if (!val.includes('instagram.com')) val = `https://www.instagram.com/${val}/`;
+    if (!val.startsWith('http')) val = 'https://www.instagram.com/' + val + '/';
+    addRecipientRow(val);
+    updateRecipientCount();
+    document.getElementById('addRecipientInput').value = '';
+  }
+
+  function selectAllRecipients(checked) {
+    document.querySelectorAll('#recipientList input[type=checkbox]')
+            .forEach(cb => cb.checked = checked);
+    updateRecipientCount();
+  }
+
+  function updateRecipientCount() {
+    const total    = document.querySelectorAll('#recipientList input[type=checkbox]').length;
+    const selected = document.querySelectorAll('#recipientList input[type=checkbox]:checked').length;
+    document.getElementById('recipientCount').textContent = `${selected} of ${total} selected`;
+    updatePreview();
+  }
+
+  function getSelectedRecipients() {
+    return Array.from(document.querySelectorAll('#recipientList label[data-url]'))
+      .filter(row => row.querySelector('input[type=checkbox]')?.checked)
+      .map(row => row.dataset.url);
+  }
+
+  // ── Greeting selector ─────────────────────────────────────────────────────
+  let greetingTemplate = 'Hi {username} 👋,';
+
+  function setGreeting(tpl) {
+    greetingTemplate = tpl;
+    document.querySelectorAll('.greet-opt').forEach(b => b.classList.remove('active-greet'));
+    // Highlight whichever button was clicked
+    event.target.classList.add('active-greet');
+    updatePreview(); updateCharCount();
+  }
+
+  function resolveGreeting(tpl, username, name) {
+    return tpl.replace(/\{username\}/g, username).replace(/\{name\}/g, name);
+  }
+
+  function fullMessage(greetTpl, body, username, name) {
+    const greeting = resolveGreeting(greetTpl, username, name);
+    return body.trim() ? `${greeting}\n\n${body.trim()}` : greeting;
+  }
+
+  function updatePreview() {
+    const body     = document.getElementById('dmTextarea')?.value || '';
+    const selected = getSelectedRecipients();
+    const box      = document.getElementById('previewBox');
+
+    // Update greeting display chip (show first recipient or placeholder)
+    const firstUrl  = selected[0];
+    const previewUN = firstUrl
+      ? firstUrl.replace('https://www.instagram.com/', '').replace(/\/$/, '')
+      : 'username';
+    const previewName = (firstUrl && enrichMap[firstUrl]?.full_name?.split(' ')[0]) || previewUN;
+    document.getElementById('greetingDisplay').textContent =
+      resolveGreeting(greetingTemplate, previewUN, previewName);
+
+    if (!body.trim() && !selected.length) { box.classList.add('hidden'); return; }
+
+    const url      = selected[0] || '';
+    const username = url ? url.replace('https://www.instagram.com/', '').replace(/\/$/, '') : 'username';
+    const name     = (url && enrichMap[url]?.full_name?.split(' ')[0]) || username;
+    const preview  = fullMessage(greetingTemplate, body, username, name);
+    document.getElementById('previewText').textContent = preview;
+    box.classList.remove('hidden');
+  }
+
+  function updateCharCount() {
+    const body = document.getElementById('dmTextarea').value;
+    const total = resolveGreeting(greetingTemplate, 'username', 'username').length
+                  + (body.trim() ? 2 + body.trim().length : 0);
+    const el = document.getElementById('charCount');
+    el.textContent = `${total} chars`;
+    el.style.color = total > 900 ? '#f87171' : total > 700 ? '#f59e0b' : '';
+  }
+
+  function insertVar(v) {
+    const ta = document.getElementById('dmTextarea');
+    const s  = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + v + ta.value.slice(e);
+    ta.selectionStart = ta.selectionEnd = s + v.length;
+    ta.focus();
+    updatePreview(); updateCharCount();
+  }
+
+  async function startSendDMs() {
+    const urls = getSelectedRecipients();
+    if (!urls.length) { alert('Select at least one recipient.'); return; }
+    const body    = document.getElementById('dmTextarea').value.trim();
+    // Build the full template with greeting + body, using placeholders (backend personalises)
+    const message = body ? `${greetingTemplate}\n\n${body}` : greetingTemplate;
+    if (!body) { alert('Write a message body first.'); return; }
+    if (!confirm(`Send DMs to ${urls.length} account${urls.length > 1 ? 's' : ''}?\n\nThis will follow each account first, then send your message.`)) return;
+
+    dmAbort = false;
+    document.getElementById('sendBtn').disabled = true;
+    document.getElementById('stopDmBtn').classList.remove('hidden');
+    document.getElementById('dmProgress').classList.remove('hidden');
+    document.getElementById('dmProgressBar').style.width = '0%';
+    document.getElementById('dmProgressIcon').className  = 'spin text-green-400 text-lg';
+    document.getElementById('dmProgressIcon').textContent = '⟳';
+    document.getElementById('dmSentCount').textContent   = '0';
+    document.getElementById('dmFailCount').textContent   = '0';
+
+    const doFollow = document.getElementById('doFollow').checked;
+    let resp;
+    try {
+      resp = await fetch('/send_dms', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ urls, message, do_follow: doFollow, delay_min: 45, delay_max: 90 }),
+      });
+    } catch(err) {
+      showError('DM request failed: ' + err.message);
+      resetSendBtn(); return;
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done || dmAbort) break;
+      buffer += decoder.decode(value, {stream: true});
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        try { handleDMEvent(JSON.parse(part.slice(6))); } catch(_) {}
+      }
+    }
+    resetSendBtn();
+  }
+
+  function handleDMEvent(msg) {
+    if (msg.type === 'dm_status') {
+      document.getElementById('dmProgressMsg').textContent = msg.message;
+      if (msg.total) {
+        document.getElementById('dmProgressBar').style.width =
+          ((msg.progress / msg.total) * 100) + '%';
+      }
+    }
+    if (msg.type === 'dm_result') {
+      document.getElementById('dmSentCount').textContent = msg.sent_count;
+      document.getElementById('dmFailCount').textContent = msg.fail_count;
+      document.getElementById('dmProgressBar').style.width =
+        ((msg.progress / msg.total) * 100) + '%';
+      // Mark row in recipient list
+      const row = document.querySelector(`#recipientList label[data-url="${CSS.escape(msg.url)}"]`);
+      if (row) {
+        const badge = document.createElement('span');
+        badge.className = `dm-badge ${msg.sent ? 'dm-badge-sent' : 'dm-badge-failed'} ml-auto mr-1`;
+        badge.textContent = msg.sent ? '✓ sent' : '✗ failed';
+        badge.title = msg.error || '';
+        row.querySelector('button')?.remove(); // remove the × remove button
+        row.appendChild(badge);
+      }
+    }
+    if (msg.type === 'dm_done') {
+      document.getElementById('dmProgressMsg').textContent = '✅ ' + msg.message;
+      document.getElementById('dmProgressIcon').className  = 'text-green-400 text-lg';
+      document.getElementById('dmProgressIcon').textContent = '✓';
+      document.getElementById('dmProgressBar').style.width = '100%';
+    }
+    if (msg.type === 'error') {
+      showError(msg.message);
+    }
+  }
+
+  function stopDMs() {
+    dmAbort = true;
+    document.getElementById('dmProgressMsg').textContent = 'Stopped.';
+    resetSendBtn();
+  }
+
+  function resetSendBtn() {
+    document.getElementById('sendBtn').disabled = false;
+    document.getElementById('stopDmBtn').classList.add('hidden');
   }
 
   // Enter key triggers search
