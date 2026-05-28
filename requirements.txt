@@ -6,3 +6,5 @@ anthropic>=0.40.0
 instagrapi>=2.0.0
 phonenumbers>=8.13.0
 googlemaps>=4.10.0
+openpyxl>=3.1.0
+apify-client>=1.7.0

@@ -306,24 +306,26 @@ _IG_CLIENT   = None
 _SESSION_FILE = Path("/tmp/ig_scraper_session.json")
 
 
-def get_ig_client(username: str, password: str):
+def get_ig_client(username: str, password: str, force_relogin: bool = False):
     """
     Return a cached instagrapi Client.  Logs in once per process; re-uses the
     saved session file on subsequent runs to avoid repeated logins.
+    Pass force_relogin=True to clear the cache and re-authenticate.
     Returns None on any auth failure.
     """
     global _IG_CLIENT
+    if force_relogin:
+        _IG_CLIENT = None
+        _SESSION_FILE.unlink(missing_ok=True)
+
     if _IG_CLIENT is not None:
         return _IG_CLIENT
 
     try:
         from instagrapi import Client
-        from instagrapi.exceptions import (
-            LoginRequired, TwoFactorRequired, ChallengeRequired,
-        )
 
         cl = Client()
-        cl.delay_range = [2, 4]  # polite delays between requests
+        cl.delay_range = [0.5, 1.5]  # reduced delay — still safe from rate limiting
 
         # Try session file first (avoids repeated logins)
         if _SESSION_FILE.exists():
@@ -443,6 +445,115 @@ def _enrich_via_instagrapi(username: str, cl) -> dict:
     except Exception:
         pass
     return out
+
+
+# ---------------------------------------------------------------------------
+# Layer 2b — Apify Instagram Profile Scraper (batch)
+# ---------------------------------------------------------------------------
+
+def enrich_profiles_via_apify(
+    urls: list,
+    api_token: str,
+    maps_client=None,
+) -> list:
+    """
+    Enrich a batch of Instagram URLs using the Apify Instagram Profile Scraper.
+    Sends ALL profiles in ONE actor run (much faster than one-by-one).
+
+    Returns a list of dicts in the same schema as enrich_profile().
+    """
+    if not urls or not api_token:
+        return []
+
+    from apify_client import ApifyClient
+    from urllib.parse import urlparse
+
+    usernames = [urlparse(u).path.strip("/") for u in urls]
+
+    # Build a url→username lookup for result mapping
+    url_map = {u: urlparse(u).path.strip("/") for u in urls}
+
+    try:
+        client = ApifyClient(api_token)
+        run    = client.actor("apify/instagram-profile-scraper").call(
+            run_input={"usernames": usernames},
+            timeout_secs=300,   # 5 min max for large batches
+        )
+        raw_items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+    except Exception as e:
+        print(f"[Apify] Error: {e}")
+        return []
+
+    # Index by username for quick lookup
+    apify_map = {item.get("username", "").lower(): item for item in raw_items}
+
+    results = []
+    for url in urls:
+        username = urlparse(url).path.strip("/").lower()
+        item     = apify_map.get(username, {})
+
+        bio           = item.get("biography", "") or ""
+        location_text = _extract_location_from_bio(bio)
+        email         = _extract_email(bio)
+        phone         = _extract_phone(bio)
+
+        # Try link-in-bio for email/phone if not found in bio
+        external_url = item.get("externalUrl", "") or ""
+        if (not email or not phone) and external_url:
+            link_data = _follow_link_in_bio(external_url, bio)
+            if link_data["email"] and not email:
+                email = link_data["email"]
+            if link_data["phone"] and not phone:
+                phone = link_data["phone"]
+
+        # Geocode location text → lat/lng/city_state
+        lat = lng = None
+        formatted_address = city_state = ""
+        if location_text and maps_client:
+            lat, lng, formatted_address, city_state = _geocode(location_text, maps_client)
+            if lat is not None and not _city_state_has_city(city_state):
+                formatted_address, city_state = _reverse_geocode(lat, lng, maps_client)
+
+        data_sources = ["apify"]
+        if email or phone:
+            data_sources.append("bio_parse")
+        if lat is not None:
+            data_sources.append("geocoded")
+
+        results.append({
+            "url":               url,
+            "username":          urlparse(url).path.strip("/"),
+            "full_name":         item.get("fullName", "") or "",
+            "bio":               bio,
+            "email":             email,
+            "phone":             phone,
+            "location_text":     location_text,
+            "formatted_address": formatted_address,
+            "lat":               lat,
+            "lng":               lng,
+            "city_state":        city_state,
+            "category":          item.get("businessCategoryName", "") or "",
+            "is_business":       bool(item.get("isBusinessAccount", False)),
+            "is_verified":       bool(item.get("verified", False)),
+            "follower_count":    item.get("followersCount"),
+            "following_count":   item.get("followsCount"),
+            "media_count":       item.get("postsCount"),
+            "data_sources":      data_sources,
+        })
+
+    return results
+
+
+def _city_state_has_city(cs: str) -> bool:
+    """Return True only if cs contains a real city name."""
+    if not cs:
+        return False
+    city_part = cs.split(",")[0].strip()
+    if len(city_part) <= 2 and city_part.isupper():
+        return False
+    if city_part in _US_STATES:
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -665,19 +776,6 @@ def enrich_profile(
     #   b) Forward-geocode gave only a state/region (no actual city name) — e.g.
     #      geocoding "Michigan" yields city_state="MI, US"; reverse-geocoding the
     #      resulting lat/lng gives us the nearest real town ("Boon, MI").
-    def _city_state_has_city(cs: str) -> bool:
-        """Return True only if cs contains a real city, not just a state abbreviation."""
-        if not cs:
-            return False
-        city_part = cs.split(",")[0].strip()
-        # 2-letter ALL-CAPS → state abbreviation, not a city ("MI", "NY", "TX")
-        if len(city_part) <= 2 and city_part.isupper():
-            return False
-        # Known US state full names (e.g. "Michigan, US")
-        if city_part in _US_STATES:
-            return False
-        return True
-
     if out["lat"] is not None and not _city_state_has_city(out["city_state"]) and maps_client:
         formatted, city_state = _reverse_geocode(out["lat"], out["lng"], maps_client)
         if city_state:

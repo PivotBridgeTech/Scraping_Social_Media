@@ -2,9 +2,8 @@
 scraper.py — unified Instagram profile URL finder with AI enhancements.
 
 Supported engines:
-  - "ddgs"        : DuckDuckGo (no keys, instant, ~50 results)
-  - "google_api"  : Google Custom Search API (needs api_key + cse_id, 100 free/day)
-  - "brave_api"   : Brave Search API (needs api_key, 2,000 free/month)
+  - "apify_google" : Apify Google Search Scraper (needs apify_token, best quality)
+  - "ddgs"         : DuckDuckGo (no keys, instant, ~50 results)
 
 AI features (requires Anthropic API key):
   - Multi-query: Claude generates 6 diverse queries → 3-5x more unique profiles
@@ -111,111 +110,70 @@ def _ddgs_run(query: str, max_results: int = 50) -> dict:
     return {"profiles": profiles, "error": None}
 
 
-GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1"
+
+APIFY_GOOGLE_ACTOR = "apify/google-search-scraper"
 
 
-def _google_run(
-    query: str,
-    max_results: int = 50,
-    api_key: str = "",
-    cse_id: str = "",
-) -> dict:
-    if not api_key or not cse_id:
-        return {"profiles": [], "error": "Google API key and Custom Search Engine ID are required."}
+def _apify_google_run(query: str, max_results: int = 50, api_token: str = "") -> dict:
+    """
+    Use Apify's Google Search Scraper actor to find Instagram profile URLs.
+    Returns the same schema as the other runners: {"profiles": [...], "error": None}
+    """
+    if not api_token:
+        return {"profiles": [], "error": "Apify API token is required for apify_google engine."}
 
-    profiles: list = []
-    pages_needed = -(-min(max_results, 100) // 10)
+    try:
+        from apify_client import ApifyClient
+    except ImportError:
+        return {"profiles": [], "error": "apify-client package not installed. Run: pip install apify-client"}
 
-    for page in range(pages_needed):
-        params = {
-            "key": api_key,
-            "cx": cse_id,
-            "q": query,
-            "start": page * 10 + 1,
-            "num": 10,
-        }
-        try:
-            resp = requests.get(GOOGLE_CSE_URL, params=params, timeout=15)
-            data = resp.json()
-        except Exception as e:
-            return {"profiles": dedupe_profiles(profiles), "error": str(e)}
+    try:
+        client = ApifyClient(api_token.strip())
 
-        if "error" in data:
-            return {"profiles": dedupe_profiles(profiles), "error": data["error"].get("message", "Google API error")}
+        # Calculate pages needed (10 results per page)
+        pages = max(1, -(-min(max_results, 100) // 10))
 
-        items = data.get("items", [])
-        if not items:
-            break
+        run = client.actor(APIFY_GOOGLE_ACTOR).call(
+            run_input={
+                "queries": query,
+                "maxPagesPerQuery": pages,
+                "resultsPerPage": 10,
+                "mobileResults": False,
+                "languageCode": "",
+                "maxConcurrency": 1,
+                "saveHtml": False,
+                "saveHtmlToKeyValueStore": False,
+            },
+            timeout_secs=120,
+        )
 
+        dataset_id = run.get("defaultDatasetId")
+        if not dataset_id:
+            return {"profiles": [], "error": "Apify run produced no dataset."}
+
+        items = list(client.dataset(dataset_id).iterate_items())
+
+        profiles = []
         for item in items:
-            link = item.get("link", "")
-            if is_profile_url(link):
-                profiles.append(_make_profile(
-                    clean_url(link),
-                    snippet=item.get("snippet", ""),
-                    title=item.get("title", ""),
-                ))
+            # Each item has an "organicResults" list
+            for result in item.get("organicResults", []):
+                link = result.get("url", "")
+                if is_profile_url(link):
+                    profiles.append(_make_profile(
+                        clean_url(link),
+                        snippet=result.get("description", ""),
+                        title=result.get("title", ""),
+                    ))
+                if len(profiles) >= max_results:
+                    break
+            if len(profiles) >= max_results:
+                break
 
-        if len(profiles) >= max_results:
-            break
+        return {"profiles": dedupe_profiles(profiles)[:max_results], "error": None}
 
-        if page < pages_needed - 1:
-            time.sleep(random.uniform(0.5, 1.2))
+    except Exception as e:
+        return {"profiles": [], "error": f"Apify Google Search error: {e}"}
 
-    return {"profiles": dedupe_profiles(profiles)[:max_results], "error": None}
-
-
-BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search"
-
-
-def _brave_run(query: str, max_results: int = 50, api_key: str = "") -> dict:
-    if not api_key:
-        return {"profiles": [], "error": "Brave Search API key is required."}
-
-    profiles: list = []
-    per_page = 20
-    pages_needed = -(-min(max_results, 100) // per_page)
-    headers = {
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip",
-        "X-Subscription-Token": api_key,
-    }
-
-    for page in range(pages_needed):
-        params = {"q": query, "count": per_page, "offset": page * per_page}
-        try:
-            resp = requests.get(BRAVE_API_URL, headers=headers, params=params, timeout=15)
-            data = resp.json()
-        except Exception as e:
-            return {"profiles": dedupe_profiles(profiles), "error": str(e)}
-
-        if resp.status_code == 401:
-            return {"profiles": dedupe_profiles(profiles), "error": "Invalid Brave API key."}
-        if resp.status_code == 429:
-            return {"profiles": dedupe_profiles(profiles), "error": "Brave API rate limit reached."}
-        if resp.status_code != 200:
-            return {"profiles": dedupe_profiles(profiles), "error": f"HTTP {resp.status_code}"}
-
-        results = data.get("web", {}).get("results", [])
-        if not results:
-            break
-
-        for item in results:
-            link = item.get("url", "")
-            if is_profile_url(link):
-                profiles.append(_make_profile(
-                    clean_url(link),
-                    snippet=item.get("description", ""),
-                    title=item.get("title", ""),
-                ))
-
-        if len(profiles) >= max_results:
-            break
-
-        if page < pages_needed - 1:
-            time.sleep(random.uniform(0.3, 0.8))
-
-    return {"profiles": dedupe_profiles(profiles)[:max_results], "error": None}
 
 
 # ---------------------------------------------------------------------------
@@ -225,16 +183,22 @@ def _brave_run(query: str, max_results: int = 50, api_key: str = "") -> dict:
 def search_with_query(
     query: str,
     engine: str = "ddgs",
-    api_key: str = "",
-    cse_id: str = "",
     max_results: int = 50,
+    apify_token: str = "",
 ) -> dict:
-    """Run a single pre-built query through the chosen engine."""
+    """
+    Run a single pre-built query through the chosen engine.
+    When apify_token is provided and engine is 'ddgs' (default),
+    automatically upgrades to 'apify_google' for better results.
+    """
     engine = engine.lower().strip()
-    if engine == "google_api":
-        result = _google_run(query, max_results, api_key, cse_id)
-    elif engine == "brave_api":
-        result = _brave_run(query, max_results, api_key)
+
+    # Auto-upgrade: use Apify Google Search when token is available and no specific engine set
+    if apify_token and engine == "ddgs":
+        engine = "apify_google"
+
+    if engine == "apify_google":
+        result = _apify_google_run(query, max_results, apify_token)
     else:
         result = _ddgs_run(query, max_results)
 
@@ -384,14 +348,13 @@ def search_instagram_profiles(
     location: str = "",
     max_results: int = 50,
     engine: str = "ddgs",
-    api_key: str = "",
-    cse_id: str = "",
+    apify_token: str = "",
 ) -> dict:
     """
     Route to the right search engine and return:
       { urls, profiles, query, error, engine }
     """
     query = build_query(niche, location)
-    result = search_with_query(query, engine, api_key, cse_id, max_results)
+    result = search_with_query(query, engine, max_results=max_results, apify_token=apify_token)
     result["urls"] = [p["url"] for p in result.get("profiles", [])]
     return result
