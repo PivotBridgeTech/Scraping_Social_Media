@@ -397,6 +397,198 @@ def send_dms():
     )
 
 
+@app.route("/send_emails", methods=["POST"])
+def send_emails():
+    """
+    Stream email send results one profile at a time.
+    Body: { profiles: [{email, username, full_name, location}], subject, body_text, body_html, provider, from_name, delay }
+    Streams SSE: email_status | email_result | email_done | error
+    """
+    import random as _random
+    from email_sender import send_email, personalise, email_token
+
+    body     = request.get_json(silent=True) or {}
+    profiles = [p for p in body.get("profiles", []) if (p.get("email") or "").strip()]
+    subject_tpl  = body.get("subject", "").strip()
+    body_text_tpl = body.get("body_text", "").strip()
+    body_html_tpl = body.get("body_html", "").strip() or None
+    provider     = body.get("provider", "resend")
+    from_name    = body.get("from_name", "").strip()
+    delay_s      = float(body.get("delay", 10))
+
+    base_url = os.getenv("APP_BASE_URL", "http://localhost:5000").rstrip("/")
+
+    resend_key  = os.getenv("RESEND_API_KEY", "").strip()
+    from_email  = os.getenv("EMAIL_FROM", "").strip()
+    smtp_host   = os.getenv("SMTP_HOST", "").strip()
+    smtp_port   = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user   = os.getenv("SMTP_USER", "").strip()
+    smtp_pass   = os.getenv("SMTP_PASS", "").strip()
+    env_from_name = from_name or os.getenv("EMAIL_FROM_NAME", "Outreach Studio").strip()
+
+    def event(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
+    def generate():
+        if not profiles:
+            yield event({"type": "error", "message": "No recipients with email addresses."})
+            return
+        if not subject_tpl:
+            yield event({"type": "error", "message": "Subject line cannot be empty."})
+            return
+        if not body_text_tpl:
+            yield event({"type": "error", "message": "Email body cannot be empty."})
+            return
+
+        # Validate provider credentials
+        if provider == "resend" and not resend_key:
+            yield event({"type": "error", "message": "RESEND_API_KEY not set in .env"})
+            return
+        if provider == "resend" and not from_email:
+            yield event({"type": "error", "message": "EMAIL_FROM not set in .env"})
+            return
+        if provider == "smtp" and not (smtp_host and smtp_user and smtp_pass):
+            yield event({"type": "error", "message": "SMTP_HOST / SMTP_USER / SMTP_PASS not set in .env"})
+            return
+
+        provider_cfg = (
+            {"api_key": resend_key, "from_email": from_email, "from_name": env_from_name}
+            if provider == "resend"
+            else {"host": smtp_host, "port": smtp_port, "user": smtp_user,
+                  "password": smtp_pass, "from_email": smtp_user, "from_name": env_from_name}
+        )
+
+        yield event({
+            "type":    "email_status",
+            "message": f"📧 Sending {len(profiles)} email{'s' if len(profiles) != 1 else ''} via {provider}…",
+        })
+
+        sent_count = 0
+        fail_count = 0
+        skip_count = 0
+
+        for i, p in enumerate(profiles):
+            to_email = p.get("email", "").strip()
+            username = p.get("username", "")
+            full_name = p.get("full_name", "")
+            location = p.get("location", "")
+
+            token = email_token(to_email)
+            unsub_url   = f"{base_url}/unsubscribe?token={token}"
+            tracking_url = f"{base_url}/track/open?token={token}" if provider == "smtp" else ""
+
+            subject   = personalise(subject_tpl,   username, full_name, location)
+            body_text = personalise(body_text_tpl, username, full_name, location)
+            body_html = personalise(body_html_tpl, username, full_name, location) if body_html_tpl else None
+
+            yield event({
+                "type":     "email_status",
+                "message":  f"Sending to {to_email} ({i+1}/{len(profiles)})…",
+                "progress": i,
+                "total":    len(profiles),
+            })
+
+            result = send_email(
+                provider        = provider,
+                provider_cfg    = provider_cfg,
+                to_email        = to_email,
+                to_name         = full_name or username,
+                subject         = subject,
+                body_text       = body_text,
+                body_html       = body_html,
+                unsubscribe_url = unsub_url,
+                tracking_pixel_url = tracking_url,
+            )
+
+            if result["error"] == "unsubscribed":
+                skip_count += 1
+            elif result["sent"]:
+                sent_count += 1
+            else:
+                fail_count += 1
+
+            yield event({
+                "type":       "email_result",
+                "email":      to_email,
+                "username":   username,
+                "sent":       result["sent"],
+                "skipped":    result["error"] == "unsubscribed",
+                "error":      result["error"],
+                "progress":   i + 1,
+                "total":      len(profiles),
+                "sent_count": sent_count,
+                "fail_count": fail_count,
+                "skip_count": skip_count,
+            })
+
+            if i < len(profiles) - 1:
+                jitter = _random.uniform(delay_s * 0.8, delay_s * 1.2)
+                yield event({
+                    "type":    "email_status",
+                    "message": f"Waiting {jitter:.1f}s…",
+                    "progress": i + 1,
+                    "total":   len(profiles),
+                })
+                time.sleep(jitter)
+
+        yield event({
+            "type":       "email_done",
+            "sent_count": sent_count,
+            "fail_count": fail_count,
+            "skip_count": skip_count,
+            "message":    f"Done · {sent_count} sent · {fail_count} failed · {skip_count} unsubscribed",
+        })
+
+    return Response(
+        generate(),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.route("/unsubscribe")
+def unsubscribe():
+    from email_sender import mark_unsubscribed
+    token = request.args.get("token", "").strip()
+    if token:
+        mark_unsubscribed(token)
+    return """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Unsubscribed</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#0d0a2e; color:#fff;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+  .box { text-align:center; padding:2rem; }
+  h1 { color:#86efac; font-size:1.5rem; margin-bottom:.5rem; }
+  p  { color:#6b7280; font-size:.9rem; }
+</style></head>
+<body>
+  <div class="box">
+    <h1>✅ You've been unsubscribed</h1>
+    <p>You won't receive any more emails from this sender.</p>
+  </div>
+</body></html>""", 200
+
+
+@app.route("/track/open")
+def track_open():
+    """Records an email open via tracking pixel (SMTP only). Returns a 1×1 transparent GIF."""
+    import base64
+    from email_sender import _UNSUB_FILE
+    token = request.args.get("token", "").strip()
+    if token:
+        opens_file = _UNSUB_FILE.parent / "opens.json"
+        try:
+            opens = json.loads(opens_file.read_text()) if opens_file.exists() else {}
+            opens[token] = opens.get(token, 0) + 1
+            opens_file.write_text(json.dumps(opens))
+        except Exception:
+            pass
+    gif = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+    return Response(gif, mimetype="image/gif",
+                    headers={"Cache-Control": "no-cache, no-store"})
+
+
 @app.route("/download", methods=["POST"])
 def download():
     data     = request.get_json(silent=True) or {}

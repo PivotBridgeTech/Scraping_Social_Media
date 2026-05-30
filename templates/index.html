@@ -234,6 +234,47 @@
 
     /* ─── Sidebar separator ───────────────────────────────── */
     .sidebar-section { border-top:1px solid rgba(255,255,255,0.06); }
+
+    /* ─── Email panel ────────────────────────────────────── */
+    #emailBodyTextarea, #emailBodyHtml {
+      width:100%;
+      background: rgba(255,255,255,0.04);
+      border:1px solid rgba(59,130,246,.2);
+      color:#dbeafe;
+      border-radius:.5rem;
+      padding:.65rem .75rem;
+      font-size:.82rem;
+      line-height:1.55;
+      resize:vertical;
+      min-height:90px;
+      outline:none;
+      font-family:inherit;
+      transition: border-color .2s, background .2s;
+    }
+    #emailBodyTextarea:focus, #emailBodyHtml:focus {
+      border-color:#3b82f6; background:rgba(59,130,246,.05);
+    }
+    #emailBodyTextarea::placeholder, #emailBodyHtml::placeholder {
+      color:rgba(147,197,253,.18);
+    }
+    .email-tab-btn {
+      flex:1; padding:.3rem .5rem; border-radius:.4rem;
+      font-size:.68rem; font-weight:600; border:1px solid;
+      transition:all .15s; cursor:pointer;
+    }
+    .email-tab-active {
+      background:rgba(59,130,246,.25); border-color:rgba(59,130,246,.5); color:#93c5fd;
+    }
+    .email-tab-inactive {
+      background:rgba(255,255,255,.03); border-color:rgba(255,255,255,.08); color:#6b7280;
+    }
+    .email-badge {
+      font-size:.6rem; font-weight:700; border-radius:9999px;
+      padding:.1rem .4rem; border:1px solid; flex-shrink:0; white-space:nowrap;
+    }
+    .email-badge-sent   { background:rgba(20,83,45,.8);  color:#86efac; border-color:#166534; }
+    .email-badge-failed { background:rgba(69,10,10,.8);  color:#fca5a5; border-color:#7f1d1d; }
+    .email-badge-skip   { background:rgba(30,27,75,.8);  color:#a5b4fc; border-color:#3730a3; }
   </style>
 </head>
 
@@ -512,6 +553,165 @@
 
       </div><!-- /p-5 -->
     </div><!-- /dmSection -->
+
+    <!-- ── Email Outreach panel ──────────────────────────── -->
+    <div id="emailSection" class="hidden sidebar-section flex-1 flex flex-col">
+      <div class="p-5 space-y-3">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-6 h-6 rounded-lg flex items-center justify-center text-xs"
+                 style="background:linear-gradient(135deg,#3b82f6,#2563eb);">📧</div>
+            <span class="text-sm font-semibold" style="background:linear-gradient(135deg,#93c5fd,#6366f1);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">Email Outreach</span>
+          </div>
+          <button onclick="document.getElementById('emailSection').classList.add('hidden')"
+            class="text-gray-600 hover:text-gray-400 transition-colors text-lg leading-none">×</button>
+        </div>
+
+        <!-- Provider + From Name row -->
+        <div class="flex gap-2">
+          <div class="flex-1">
+            <label class="block text-[0.65rem] text-gray-600 mb-1">Provider</label>
+            <select id="emailProvider"
+              class="w-full rounded-lg px-2.5 py-1.5 text-xs"
+              style="background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:#d1d5db; outline:none;">
+              <option value="resend">Resend.com</option>
+              <option value="smtp">SMTP (Gmail/Outlook)</option>
+            </select>
+          </div>
+          <div class="flex-1">
+            <label class="block text-[0.65rem] text-gray-600 mb-1">From name</label>
+            <input id="emailFromName" type="text" placeholder="Your name / brand"
+              class="input-field w-full rounded-lg px-2.5 py-1.5 text-xs" />
+          </div>
+        </div>
+
+        <!-- Subject -->
+        <div>
+          <label class="block text-[0.65rem] text-gray-600 mb-1">Subject line</label>
+          <input id="emailSubject" type="text"
+            placeholder="e.g. Collaboration opportunity for {name}"
+            oninput="updateEmailPreview()"
+            class="input-field w-full rounded-xl px-3.5 py-2 text-sm" />
+        </div>
+
+        <!-- Format toggle -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[0.65rem] text-gray-600">Body format</span>
+            <div class="flex gap-1">
+              <button id="emailTabPlain" onclick="setEmailTab('plain')"
+                class="email-tab-btn email-tab-active">Plain text</button>
+              <button id="emailTabHtml" onclick="setEmailTab('html')"
+                class="email-tab-btn email-tab-inactive">HTML</button>
+            </div>
+          </div>
+
+          <!-- Plain textarea -->
+          <div id="emailPlainPane">
+            <textarea id="emailBodyTextarea" rows="4"
+              placeholder="Write your email here…&#10;&#10;Hi {name}, I came across your Instagram profile and love your work in {location}!"
+              oninput="updateEmailPreview()"></textarea>
+          </div>
+
+          <!-- HTML textarea -->
+          <div id="emailHtmlPane" class="hidden">
+            <textarea id="emailBodyHtml" rows="5"
+              placeholder="&lt;p&gt;Hi {name},&lt;/p&gt;&#10;&lt;p&gt;I came across your profile...&lt;/p&gt;"
+              oninput="updateEmailPreview()"></textarea>
+            <p class="text-[0.62rem] text-gray-700 mt-1">Plain text fallback is used automatically for HTML sends.</p>
+          </div>
+
+          <!-- Insert vars row -->
+          <div class="flex items-center gap-3 mt-1.5 text-[0.68rem] text-gray-600">
+            <span>Insert:</span>
+            <button onclick="insertEmailVar('{name}')"      class="hover:text-blue-400 transition-colors font-mono">{name}</button>
+            <button onclick="insertEmailVar('{username}')"  class="hover:text-blue-400 transition-colors font-mono">{username}</button>
+            <button onclick="insertEmailVar('{location}')"  class="hover:text-blue-400 transition-colors font-mono">{location}</button>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div id="emailPreviewBox" class="hidden rounded-lg px-3.5 py-2.5"
+             style="background:rgba(0,0,0,.3); border:1px solid rgba(59,130,246,.18);">
+          <p class="text-[0.62rem] text-gray-600 uppercase tracking-wider mb-1">Preview · first recipient</p>
+          <p id="emailPreviewSubject" class="text-[0.72rem] font-semibold text-blue-300 mb-1"></p>
+          <p id="emailPreviewBody"    class="text-sm text-gray-300 whitespace-pre-wrap"></p>
+        </div>
+
+        <!-- Recipients -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs text-gray-400 font-medium">
+              Recipients with emails
+              <span id="emailRecipientCount" class="font-semibold ml-1" style="color:#60a5fa;">0 selected</span>
+            </span>
+            <div class="flex gap-2">
+              <button onclick="selectAllEmailRecipients(true)"
+                class="text-[0.65rem] text-gray-600 hover:text-gray-400 transition-colors">All</button>
+              <span class="text-gray-700">·</span>
+              <button onclick="selectAllEmailRecipients(false)"
+                class="text-[0.65rem] text-gray-600 hover:text-gray-400 transition-colors">None</button>
+            </div>
+          </div>
+          <div id="emailRecipientList"
+            class="max-h-44 overflow-y-auto space-y-0.5 rounded-xl p-2"
+            style="background:rgba(0,0,0,.25); border:1px solid rgba(59,130,246,.1);">
+            <p class="text-[0.68rem] text-gray-700 text-center py-3">
+              Recipients with emails appear here after enrichment.
+            </p>
+          </div>
+        </div>
+
+        <!-- Delay -->
+        <div class="flex items-center gap-3 text-[0.68rem] text-gray-600">
+          <span>Delay between sends:</span>
+          <select id="emailDelay"
+            class="rounded-lg px-2 py-1 text-xs"
+            style="background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:#d1d5db; outline:none;">
+            <option value="5">~5 sec</option>
+            <option value="10" selected>~10 sec</option>
+            <option value="30">~30 sec</option>
+            <option value="60">~60 sec</option>
+          </select>
+        </div>
+
+        <!-- Send / Stop -->
+        <div class="flex items-center gap-2 pb-1">
+          <button id="emailSendBtn" onclick="startSendEmails()"
+            class="flex-1 py-2.5 rounded-xl font-semibold text-sm text-white tracking-wide transition-opacity"
+            style="background:linear-gradient(135deg,#3b82f6,#2563eb); box-shadow:0 4px 14px rgba(59,130,246,.3);">
+            📧 Send Emails
+          </button>
+          <button id="emailStopBtn" onclick="stopEmails()" class="hidden text-xs px-4 py-2.5 rounded-xl border transition-colors"
+            style="background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.3); color:#fca5a5;">
+            ⏹ Stop
+          </button>
+        </div>
+
+        <!-- Progress -->
+        <div id="emailProgress" class="hidden space-y-2.5 pt-1 border-t border-white/[0.06]">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span id="emailProgressIcon" class="spin" style="color:#3b82f6;">⟳</span>
+              <span id="emailProgressMsg" class="text-xs text-gray-300">Sending…</span>
+            </div>
+            <div class="flex gap-3 text-[0.68rem] font-mono">
+              <span class="text-green-400">✓ <span id="emailSentCount">0</span></span>
+              <span class="text-red-400">✗ <span id="emailFailCount">0</span></span>
+              <span class="text-indigo-400">⊘ <span id="emailSkipCount">0</span></span>
+            </div>
+          </div>
+          <div class="w-full rounded-full h-1" style="background:rgba(255,255,255,.08);">
+            <div id="emailProgressBar"
+              class="h-1 rounded-full transition-all duration-500"
+              style="width:0%; background:linear-gradient(90deg,#3b82f6,#6366f1);"></div>
+          </div>
+        </div>
+
+      </div><!-- /p-5 -->
+    </div><!-- /emailSection -->
 
   </aside><!-- /sidebar -->
 
@@ -967,6 +1167,13 @@
     document.getElementById('newQueryInput').value     = '';
     document.getElementById('stepLog').innerHTML       = '';
     document.getElementById('dmSection').classList.add('hidden');
+    document.getElementById('emailSection').classList.add('hidden');
+    document.getElementById('emailRecipientList').innerHTML = '<p class="text-[0.68rem] text-gray-700 text-center py-3">Recipients with emails appear here after enrichment.</p>';
+    document.getElementById('emailProgress').classList.add('hidden');
+    document.getElementById('emailProgressBar').style.width = '0%';
+    document.getElementById('emailSentCount').textContent  = '0';
+    document.getElementById('emailFailCount').textContent  = '0';
+    document.getElementById('emailSkipCount').textContent  = '0';
     document.getElementById('recipientList').innerHTML = '<p class="text-[0.68rem] text-gray-700 text-center py-3">Recipients appear here after a search.</p>';
     document.getElementById('dmProgress').classList.add('hidden');
     document.getElementById('dmProgressBar').style.width = '0%';
@@ -1129,6 +1336,10 @@
       document.getElementById('enrichIcon').textContent = '✓';
       document.getElementById('enrichMsg').textContent  = msg.message;
       document.getElementById('enrichProgressBar').style.width = '100%';
+      // Populate email panel with recipients that have emails
+      populateEmailRecipients(collectedUrls);
+      const hasEmails = document.querySelectorAll('#emailRecipientList label[data-email]').length > 0;
+      if (hasEmails) document.getElementById('emailSection').classList.remove('hidden');
     }
     if (msg.type === 'error') showError(msg.message);
   }
@@ -1411,6 +1622,209 @@
 
   function stopDMs()    { dmAbort = true; document.getElementById('dmProgressMsg').textContent = 'Stopped.'; resetSendBtn(); }
   function resetSendBtn() { document.getElementById('sendBtn').disabled = false; document.getElementById('stopDmBtn').classList.add('hidden'); }
+
+  /* ══════════════════════════════════════════════════════
+     EMAIL OUTREACH
+  ══════════════════════════════════════════════════════ */
+  let emailAbort   = false;
+  let emailTabMode = 'plain'; // 'plain' | 'html'
+
+  function setEmailTab(mode) {
+    emailTabMode = mode;
+    document.getElementById('emailPlainPane').classList.toggle('hidden', mode !== 'plain');
+    document.getElementById('emailHtmlPane').classList.toggle('hidden',  mode !== 'html');
+    document.getElementById('emailTabPlain').className = 'email-tab-btn ' + (mode === 'plain' ? 'email-tab-active' : 'email-tab-inactive');
+    document.getElementById('emailTabHtml').className  = 'email-tab-btn ' + (mode === 'html'  ? 'email-tab-active' : 'email-tab-inactive');
+    updateEmailPreview();
+  }
+
+  function insertEmailVar(v) {
+    const ta = emailTabMode === 'html'
+      ? document.getElementById('emailBodyHtml')
+      : document.getElementById('emailBodyTextarea');
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + v + ta.value.slice(e);
+    ta.selectionStart = ta.selectionEnd = s + v.length;
+    ta.focus(); updateEmailPreview();
+  }
+
+  function _resolveEmailVars(tpl, username, fullName, location) {
+    const first = (fullName || '').trim().split(' ')[0] || username;
+    return tpl
+      .replace(/\{name\}/g,     first)
+      .replace(/\{username\}/g, username)
+      .replace(/\{location\}/g, location || 'your area');
+  }
+
+  function updateEmailPreview() {
+    const subject  = document.getElementById('emailSubject').value;
+    const body     = emailTabMode === 'html'
+      ? document.getElementById('emailBodyHtml').value
+      : document.getElementById('emailBodyTextarea').value;
+    const box = document.getElementById('emailPreviewBox');
+    if (!subject && !body) { box.classList.add('hidden'); return; }
+
+    // Use first selected email recipient for preview
+    const firstRow = document.querySelector('#emailRecipientList label[data-email]');
+    const username = firstRow?.dataset.username || 'username';
+    const fullName = firstRow?.dataset.fullname || '';
+    const location = firstRow?.dataset.location || '';
+
+    document.getElementById('emailPreviewSubject').textContent =
+      '▸ ' + _resolveEmailVars(subject, username, fullName, location);
+    const resolved = _resolveEmailVars(body, username, fullName, location);
+    // Strip tags for preview if HTML mode
+    document.getElementById('emailPreviewBody').textContent =
+      emailTabMode === 'html' ? resolved.replace(/<[^>]+>/g, '') : resolved;
+    box.classList.remove('hidden');
+  }
+
+  function populateEmailRecipients(urls) {
+    const list = document.getElementById('emailRecipientList');
+    const rows = [];
+    urls.forEach(url => {
+      const p = enrichMap[url];
+      if (!p || !p.email) return;
+      const username = url.replace('https://www.instagram.com/','').replace(/\/$/,'');
+      const id = `ercpt-${username}`;
+      const row = document.createElement('label');
+      row.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors hover:bg-white/[0.03]';
+      row.setAttribute('for', id);
+      row.dataset.email    = p.email;
+      row.dataset.username = username;
+      row.dataset.fullname = p.full_name || '';
+      row.dataset.location = p.city_state || p.location_text || '';
+      row.innerHTML = `
+        <input type="checkbox" id="${id}" checked
+          class="w-3.5 h-3.5 flex-shrink-0" style="accent-color:#3b82f6;"
+          onchange="updateEmailRecipientCount()" />
+        <span class="text-sm flex-shrink-0" style="color:#818cf8;">@${username}</span>
+        <span class="text-emerald-500 text-[0.62rem] ml-1 truncate">${p.email}</span>
+        <button onclick="event.preventDefault(); this.closest('label').remove(); updateEmailRecipientCount();"
+          class="ml-auto text-gray-700 hover:text-red-400 text-xs transition-colors flex-shrink-0">✕</button>`;
+      rows.push(row);
+    });
+
+    if (rows.length === 0) {
+      list.innerHTML = '<p class="text-[0.68rem] text-gray-700 text-center py-3">No emails found. Run enrichment first.</p>';
+    } else {
+      list.innerHTML = '';
+      rows.forEach(r => list.appendChild(r));
+    }
+    updateEmailRecipientCount();
+    updateEmailPreview();
+  }
+
+  function updateEmailRecipientCount() {
+    const total    = document.querySelectorAll('#emailRecipientList input[type=checkbox]').length;
+    const selected = document.querySelectorAll('#emailRecipientList input[type=checkbox]:checked').length;
+    document.getElementById('emailRecipientCount').textContent = `${selected} of ${total} selected`;
+  }
+
+  function selectAllEmailRecipients(checked) {
+    document.querySelectorAll('#emailRecipientList input[type=checkbox]').forEach(cb => cb.checked = checked);
+    updateEmailRecipientCount();
+  }
+
+  function getSelectedEmailProfiles() {
+    return Array.from(document.querySelectorAll('#emailRecipientList label[data-email]'))
+      .filter(row => row.querySelector('input[type=checkbox]')?.checked)
+      .map(row => ({
+        email:     row.dataset.email,
+        username:  row.dataset.username,
+        full_name: row.dataset.fullname,
+        location:  row.dataset.location,
+      }));
+  }
+
+  async function startSendEmails() {
+    const profiles = getSelectedEmailProfiles();
+    if (!profiles.length) { alert('Select at least one recipient with an email.'); return; }
+    const subject   = document.getElementById('emailSubject').value.trim();
+    const body_text = document.getElementById('emailBodyTextarea').value.trim();
+    const body_html = emailTabMode === 'html' ? document.getElementById('emailBodyHtml').value.trim() : '';
+    if (!subject)   { alert('Subject line cannot be empty.'); return; }
+    if (!body_text && !body_html) { alert('Email body cannot be empty.'); return; }
+
+    if (!confirm(`Send emails to ${profiles.length} recipient${profiles.length > 1 ? 's' : ''}?`)) return;
+
+    emailAbort = false;
+    document.getElementById('emailSendBtn').disabled = true;
+    document.getElementById('emailStopBtn').classList.remove('hidden');
+    document.getElementById('emailProgress').classList.remove('hidden');
+    document.getElementById('emailProgressBar').style.width = '0%';
+    document.getElementById('emailProgressIcon').className  = 'spin';
+    document.getElementById('emailProgressIcon').style.color = '#3b82f6';
+    document.getElementById('emailProgressIcon').textContent = '⟳';
+    document.getElementById('emailSentCount').textContent  = '0';
+    document.getElementById('emailFailCount').textContent  = '0';
+    document.getElementById('emailSkipCount').textContent  = '0';
+
+    const fromName = document.getElementById('emailFromName').value.trim();
+    const provider = document.getElementById('emailProvider').value;
+    const delay    = parseFloat(document.getElementById('emailDelay').value);
+
+    let resp;
+    try {
+      resp = await fetch('/send_emails', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ profiles, subject, body_text, body_html: body_html || null, provider, from_name: fromName, delay }),
+      });
+    } catch(err) { showError('Email request failed: ' + err.message); resetEmailBtn(); return; }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done || emailAbort) break;
+      buffer += decoder.decode(value, {stream:true});
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() || '';
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        try { handleEmailEvent(JSON.parse(part.slice(6))); } catch(_) {}
+      }
+    }
+    resetEmailBtn();
+  }
+
+  function handleEmailEvent(msg) {
+    if (msg.type === 'email_status') {
+      document.getElementById('emailProgressMsg').textContent = msg.message;
+      if (msg.total) document.getElementById('emailProgressBar').style.width = ((msg.progress / msg.total) * 100) + '%';
+    }
+    if (msg.type === 'email_result') {
+      document.getElementById('emailSentCount').textContent  = msg.sent_count;
+      document.getElementById('emailFailCount').textContent  = msg.fail_count;
+      document.getElementById('emailSkipCount').textContent  = msg.skip_count;
+      document.getElementById('emailProgressBar').style.width = ((msg.progress / msg.total) * 100) + '%';
+
+      const row = Array.from(document.querySelectorAll('#emailRecipientList label[data-email]'))
+        .find(el => el.dataset.email === msg.email);
+      if (row) {
+        const badge = document.createElement('span');
+        const cls = msg.skipped ? 'email-badge-skip' : (msg.sent ? 'email-badge-sent' : 'email-badge-failed');
+        const label = msg.skipped ? '⊘ skip' : (msg.sent ? '✓ sent' : '✗ failed');
+        badge.className = `email-badge ${cls} ml-auto mr-1`;
+        badge.textContent = label;
+        badge.title = msg.error || '';
+        row.querySelector('button')?.remove();
+        row.appendChild(badge);
+      }
+    }
+    if (msg.type === 'email_done') {
+      document.getElementById('emailProgressMsg').textContent  = '✅ ' + msg.message;
+      document.getElementById('emailProgressIcon').className   = '';
+      document.getElementById('emailProgressIcon').textContent = '✓';
+      document.getElementById('emailProgressIcon').style.color = '#22c55e';
+      document.getElementById('emailProgressBar').style.width  = '100%';
+    }
+    if (msg.type === 'error') showError(msg.message);
+  }
+
+  function stopEmails()    { emailAbort = true; document.getElementById('emailProgressMsg').textContent = 'Stopped.'; resetEmailBtn(); }
+  function resetEmailBtn() { document.getElementById('emailSendBtn').disabled = false; document.getElementById('emailStopBtn').classList.add('hidden'); }
 
   /* ── Init ────────────────────────────────────────────────── */
   ['niche','location'].forEach(id => {
